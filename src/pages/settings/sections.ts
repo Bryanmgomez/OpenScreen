@@ -37,12 +37,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
     icon: Monitor,
     pending: { phase: 2, groups: [{ title: 'Fuente', controls: [C.captureType, C.captureSource] }] }
   },
-  {
-    id: 'video',
-    label: 'Video',
-    icon: Video,
-    pending: { phase: 4, groups: [{ title: 'Salida de video', controls: [C.resolution, C.fps] }] }
-  },
+  { id: 'video', label: 'Video', icon: Video },
   { id: 'audio', label: 'Audio', icon: Mic },
   {
     id: 'shortcuts',
@@ -51,11 +46,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
     pending: { phase: 2, groups: [{ title: 'Atajos globales', controls: [C.shortcutStart, C.shortcutPause, C.shortcutMute] }] }
   },
   { id: 'storage', label: 'Almacenamiento', icon: HardDrive },
-  {
-    id: 'performance',
-    label: 'Rendimiento',
-    icon: Gauge,
-    pending: { phase: 4, groups: [{ title: 'Codificación', controls: [C.hwAccel, C.encoder, C.priority] }] }
-  },
+  { id: 'performance', label: 'Rendimiento', icon: Gauge },
   { id: 'appearance', label: 'Apariencia', icon: Palette }
 ]

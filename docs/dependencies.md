@@ -29,5 +29,8 @@ Las dependencias transitivas no se han auditado una por una en la Fase 1. Antes 
 
 ## Pendiente de revisar
 
-- **FFmpeg (Fase 4):** definir cómo se distribuirá. Las compilaciones de FFmpeg pueden ser LGPL o GPL según los componentes habilitados, y los codificadores de hardware y de H.264/H.265 pueden tener implicaciones de patentes o de licencia. Se documentará la decisión en este archivo antes de incluir ningún binario.
+- **FFmpeg (Sesión 06):** OpenScreen no incluye ningún binario. La detección de códecs y formatos
+  solo habilita lo que el FFmpeg instalado por el usuario prueba en su equipo; H.265/AV1/NVENC/AMF/QSV
+  no se afirman sin prueba real. Antes de distribuir un binario hay que decidir LGPL vs GPL según los
+  componentes y revisar patentes de H.264/H.265 y licencias de los codificadores de hardware.
 - **Electron / Chromium:** el binario incluye componentes de terceros con sus propias licencias (`LICENSES.chromium.html`); deben incluirse en el instalador.

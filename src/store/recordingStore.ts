@@ -3,13 +3,24 @@ import type { Unsubscribe } from '@shared/api'
 import type { AudioSettings, AudioSupport, AudioTrackKind } from '@shared/audio'
 import type { SourceRef } from '@shared/capture'
 import {
-  chooseRecorderMimeType,
+  EMPTY_ENCODING_CAPABILITIES,
+  EMPTY_RENDERER_CAPABILITIES,
+  RESOLUTION_SIZES,
+  type EncodingCapabilities,
+  type RendererEncodingCapabilities
+} from '@shared/encoding'
+import type { Settings } from '@shared/settings'
+import {
   elapsedMs,
   EMPTY_RECORDING_STATUS,
-  QUALITY_BITRATES,
   type RecordingOptions,
   type RecordingStatus
 } from '@shared/recording'
+import { buildEncodingPlan, captureLimits, recorderBitrate } from '@/encoding/model'
+import {
+  measureDeliveredFps,
+  probeMediaRecorderCapabilities
+} from '@/encoding/mediaRecorderProbe'
 import {
   pauseAudioEngine,
   resumeAudioEngine,
@@ -22,6 +33,8 @@ import { toMessage } from '@/utils/errors'
 export interface StartRecordingInput {
   source: SourceRef
   options: RecordingOptions
+  /** Preferencias persistentes de codificación; el plan final usa capacidades reales. */
+  preferences: Settings['recording']
   audio: AudioSettings
   support: AudioSupport
 }
@@ -32,6 +45,9 @@ interface RecordingState {
   busy: boolean
   ffmpegAvailable: boolean | null
   cursorHonored: boolean | null
+  encodingCapabilities: EncodingCapabilities | null
+  rendererCapabilities: RendererEncodingCapabilities | null
+  planWarnings: string[]
   init: () => Promise<void>
   start: (input: StartRecordingInput) => Promise<void>
   pause: () => Promise<void>
@@ -39,18 +55,8 @@ interface RecordingState {
   stop: () => Promise<void>
   cancel: () => Promise<void>
   checkFfmpeg: () => Promise<boolean>
+  refreshCapabilities: () => Promise<void>
 }
-
-const MIME_CANDIDATES = [
-  'video/mp4;codecs=h264',
-  'video/mp4;codecs=avc1',
-  'video/mp4',
-  'video/webm;codecs=vp9',
-  'video/webm;codecs=vp8',
-  'video/webm;codecs=vp9,opus',
-  'video/webm;codecs=vp8,opus',
-  'video/webm'
-] as const
 
 let unsubscribeStatus: Unsubscribe | null = null
 let recorder: MediaRecorder | null = null
@@ -85,6 +91,39 @@ async function applyCursor(track: MediaStreamTrack, show: boolean): Promise<bool
     // Plataforma sin soporte: se refleja en `cursorHonored`.
   }
   return cursorSettings(track).cursor === desired
+}
+
+/**
+ * Pide tamaño y cadencia como `ideal`: un `exact` incompatible hace que Chromium entregue un
+ * stream vacío. Después se comprueban `getSettings()` y los frames realmente recibidos.
+ */
+function captureVideoConstraints(options: {
+  showCursor: boolean
+  width: number
+  height: number
+  fps: number
+}): MediaTrackConstraints {
+  return {
+    width: { ideal: options.width },
+    height: { ideal: options.height },
+    frameRate: { ideal: options.fps },
+    cursor: options.showCursor ? 'always' : 'never'
+  } as MediaTrackConstraints
+}
+
+async function applyCaptureTargets(
+  track: MediaStreamTrack,
+  target: { width: number; height: number; fps: number }
+): Promise<void> {
+  try {
+    await track.applyConstraints({
+      width: { ideal: target.width },
+      height: { ideal: target.height },
+      frameRate: { ideal: target.fps }
+    })
+  } catch {
+    // Chromium puede ignorar los constraints; el plan final usa los valores informados.
+  }
 }
 
 function stopTracks(): void {
@@ -130,6 +169,9 @@ export const useRecordingStore = create<RecordingState>((set) => ({
   busy: false,
   ffmpegAvailable: null,
   cursorHonored: null,
+  encodingCapabilities: null,
+  rendererCapabilities: null,
+  planWarnings: [],
 
   init: async () => {
     try {
@@ -141,6 +183,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
         api.recording.checkFfmpeg()
       ])
       set({ status, ffmpegAvailable, error: null })
+      await useRecordingStore.getState().refreshCapabilities()
     } catch (error) {
       set({ error: toMessage(error) })
     }
@@ -148,8 +191,10 @@ export const useRecordingStore = create<RecordingState>((set) => ({
 
   checkFfmpeg: async () => {
     try {
-      const ffmpegAvailable = await getApi().recording.checkFfmpeg()
-      set({ ffmpegAvailable })
+      const api = getApi()
+      const ffmpegAvailable = await api.recording.checkFfmpeg()
+      const encodingCapabilities = await api.recording.getEncodingCapabilities()
+      set({ ffmpegAvailable, encodingCapabilities })
       return ffmpegAvailable
     } catch (error) {
       set({ error: toMessage(error) })
@@ -157,7 +202,21 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     }
   },
 
-  start: async ({ source, options, audio, support }) => {
+  refreshCapabilities: async () => {
+    try {
+      const api = getApi()
+      const [snapshot, encodingCapabilities] = await Promise.all([
+        api.capture.getSnapshot(),
+        api.recording.getEncodingCapabilities()
+      ])
+      const rendererCapabilities = await probeMediaRecorderCapabilities(captureLimits(snapshot))
+      set({ encodingCapabilities, rendererCapabilities })
+    } catch (error) {
+      set({ error: toMessage(error) })
+    }
+  },
+
+  start: async ({ source, options, preferences, audio, support }) => {
     if (recorder || activeSessionId) {
       set({ error: 'Ya hay una grabación en curso.' })
       return
@@ -167,20 +226,29 @@ export const useRecordingStore = create<RecordingState>((set) => ({
       return
     }
 
-    set({ busy: true, error: null })
+    set({ busy: true, error: null, planWarnings: [] })
     let acquired: MediaStream | null = null
 
     try {
+      const api = getApi()
+      const requestedSize = RESOLUTION_SIZES[preferences.resolution]
+      const captureTarget = {
+        width: requestedSize?.width ?? source.width ?? 1920,
+        height: requestedSize?.height ?? source.height ?? 1080,
+        fps: preferences.fps
+      }
       const wantsSystemAudio =
         audio.system.enabled &&
         audio.system.mode === 'auto' &&
         support.systemAudio !== 'unavailable'
-      // Debe ocurrir dentro del gesto del usuario: main concede la fuente ya seleccionada
-      // y, en Windows, el loopback del sistema si la pista está activada.
+      // Debe ser la PRIMERA operación asíncrona: cualquier IPC previo consume la activación
+      // transitoria del gesto y Chromium rechaza `getDisplayMedia`. Main concede la fuente
+      // ya elegida y, en Windows, el loopback del sistema si la pista está activada.
       acquired = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          cursor: options.showCursor ? 'always' : 'never'
-        } as MediaTrackConstraints,
+        video: captureVideoConstraints({
+          showCursor: options.showCursor,
+          ...captureTarget
+        }),
         audio: wantsSystemAudio,
         systemAudio: wantsSystemAudio ? 'include' : 'exclude',
         surfaceSwitching: 'exclude'
@@ -190,25 +258,50 @@ export const useRecordingStore = create<RecordingState>((set) => ({
       const track = acquired.getVideoTracks()[0]
       if (!track) throw new Error('El stream de captura no contiene vídeo.')
 
+      // Solo después de capturar se consultan capacidades: no afectan al gesto del usuario.
+      const snapshot = await api.capture.getSnapshot()
+      const limits = captureLimits(snapshot)
+      let renderer = useRecordingStore.getState().rendererCapabilities
+      let ffmpeg = useRecordingStore.getState().encodingCapabilities ?? EMPTY_ENCODING_CAPABILITIES
+      if (!renderer) {
+        await useRecordingStore.getState().refreshCapabilities()
+        renderer = useRecordingStore.getState().rendererCapabilities ?? EMPTY_RENDERER_CAPABILITIES
+        ffmpeg = useRecordingStore.getState().encodingCapabilities ?? EMPTY_ENCODING_CAPABILITIES
+      }
+
       const cursorHonored = await applyCursor(track, options.showCursor)
       set({ cursorHonored })
 
-      const supported = MIME_CANDIDATES.filter((type) => MediaRecorder.isTypeSupported(type))
-      const mimeType = chooseRecorderMimeType(supported, options.format)
-      if (!mimeType) {
-        throw new Error(
-          options.format === 'mp4'
-            ? 'Chromium no ofrece codificación MP4; instala FFmpeg o usa WebM.'
-            : 'Chromium no ofrece un contenedor WebM compatible con MediaRecorder.'
-        )
-      }
+      await applyCaptureTargets(track, captureTarget)
+      const measuredFps = await measureDeliveredFps(acquired)
+      const settings = track.getSettings()
+      const capabilities = track.getCapabilities?.() as MediaTrackCapabilities | undefined
+      const planResult = buildEncodingPlan({
+        preferences,
+        limits: {
+          width: limits.width ?? capabilities?.width?.max ?? settings.width ?? null,
+          height: limits.height ?? capabilities?.height?.max ?? settings.height ?? null,
+          fps: limits.fps ?? capabilities?.frameRate?.max ?? null
+        },
+        actual: {
+          width: settings.width ?? null,
+          height: settings.height ?? null,
+          fps: settings.frameRate ?? null,
+          measuredFps
+        },
+        renderer,
+        ffmpeg
+      })
+      set({ planWarnings: planResult.warnings })
+      const { plan, mimeType } = planResult
 
-      const begun = await getApi().recording.begin({
+      const begun = await api.recording.begin({
         source,
         options,
         audio,
+        encoding: plan,
         mimeType,
-        extension: options.format
+        extension: plan.format
       })
       activeSessionId = begun.sessionId
       currentMimeType = mimeType
@@ -250,7 +343,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
 
       const nextRecorder = new MediaRecorder(finalStream, {
         mimeType,
-        videoBitsPerSecond: QUALITY_BITRATES[options.quality],
+        videoBitsPerSecond: recorderBitrate(plan),
         audioBitsPerSecond: 128_000
       })
       recorder = nextRecorder

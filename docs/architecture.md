@@ -59,7 +59,10 @@ Se evitó una librería de componentes o Tailwind para no sumar dependencias. Lo
 
 - **Captura (2, completada):** la Sesión 03 enumera fuentes con `desktopCapturer`/`screen`, permite elegirlas y muestra vista previa real. La Sesión 04 añade el motor: el renderer capta con `MediaRecorder` y main es dueño del estado, de los chunks y de los archivos. `setDisplayMediaRequestHandler` concede exactamente la fuente elegida; si caducó, la grabación se rechaza.
 - **Audio (3, completado en la Sesión 05):** mezcla y medidores con Web Audio API en el renderer; dispositivos y permisos coordinados desde main. El `loopback` de Windows se verificó con audio real; macOS/Linux requieren un dispositivo virtual no verificado por OpenScreen.
-- **Codificación (4):** FFmpeg ya se ejecuta como proceso hijo desde main con arreglos de argumentos cuando se elige MP4. La calidad se controla con CRF (`18`/`23`/`32`). Si `MediaRecorder` no ofrece la fiabilidad requerida para nuevos casos (p. ej. 120 FPS o audio del sistema en Windows), se evaluará una solución nativa complementaria en lugar de simularla.
+- **Codificación (4, completada en la Sesión 06):** FFmpeg se ejecuta como proceso hijo desde main
+  con arreglos de argumentos. La calidad, resolución, FPS, formato, códec y aceleración se deciden
+  con capacidades detectadas y probadas; nunca con listas supuestas. WebM sigue siendo la ruta
+  nativa sin dependencias. Las opciones no verificadas aparecen deshabilitadas y con el motivo.
 
 ## Interfaz (Sesión 02)
 
@@ -135,3 +138,44 @@ El loopback se concedió con `loopbackWithMute`, por lo que el tono no se repiti
 tres pistas se listan en los metadatos y ningún archivo `.part` quedó tras finalizar. macOS y Linux
 no se presentan como compatibles: la captura automática allí requiere un dispositivo virtual no
 probado por OpenScreen.
+
+## Calidad y codificación (Sesión 06)
+
+- `shared/encoding.ts`: contrato único de resolución (original/720p/1080p/1440p/4K), FPS
+  (24/30/48/60/120), formatos (WebM/MP4/MKV), códecs (H.264/H.265/AV1/VP8/VP9), calidad
+  (Baja/Media/Alta/Personalizada), aceleración (CPU/NVENC/AMF/QSV), perfiles y `EncodingPlan`.
+  `Media` es la etiqueta de `balanced`; `custom` permite bitrate, CRF, keyframe y preset.
+- `src/encoding/mediaRecorderProbe.ts`: prueba real de escritura `MediaRecorder` para cada MIME
+  candidato (genera un archivo diminuto y valida la cabecera EBML/`ftyp`). `isTypeSupported()`
+  por sí solo nunca marca una opción como compatible. El sondeo usa 10 frames/~800 ms porque VP9
+  puede tardar en emitir el primer chunk.
+- `electron/services/recording/encodingProbe.ts`: sondeo real de FFmpeg (`-version`, `-encoders`,
+  `-formats`, `-hwaccels`) y una codificación de prueba de un frame contra `/null` por codificador.
+  Un encoder listado pero inutilizable se marca como no disponible. La presencia de una GPU no se
+  considera prueba de NVENC/AMF/QSV.
+- `src/encoding/model.ts`: construye el plan final. Reduce resolución/FPS a lo que la fuente
+  realmente entrega, mide frames con `requestVideoFrameCallback`, degrada un códec persistido no
+  verificado a otro verificado y elige la ruta nativa solo cuando no hay recodificación. MKV puede
+  reenvolver el WebM sin pérdida (`streamCopy`); MP4 y los ajustes avanzados requieren transcode.
+  Todo lo que no pasó una prueba real se rechaza con un motivo, no se ofrece como compatible.
+- `src/components/recording/EncodingSettings.tsx`: panel compartido por la página de grabación y
+  Ajustes > Video/Rendimiento. Muestra las opciones no disponibles deshabilitadas y explica por qué.
+  Los perfiles guardan y aplican únicamente la combinación actual de ajustes.
+- `getDisplayMedia` sigue siendo la primera operación asíncrona de `start()`: cualquier IPC previo
+  consume la activación transitoria del gesto. Las constraints se piden como `ideal`; se comprueban
+  `getSettings()` y los frames entregados antes de informar del resultado.
+- `RecordingStatus.encoding` y el archivo `.openscreen.json` incluyen el plan aplicado con tamaño
+  y FPS reales y los FPS medidos. Un `frameRate` reflejado por Chromium no se presenta como logrado
+  si la entrega real fue menor.
+
+### Verificación real (Windows 11, Electron 45.4.1)
+
+- FFmpeg/ffprobe no están instalados en el entorno de desarrollo: MP4, MKV, H.265, AV1 y
+  aceleración por GPU quedan deshabilitados y no se afirman como compatibles.
+- Grabación real con 720p/24 fps y VP9: archivo WebM de 792.611 bytes, cabecera EBML `1a45dfa3`,
+  duración 3,19 s, fuente `1920×1080` y plan `1280×720`, 24 fps
+  aplicados y 23,7 fps medidos. El plan guardado coincidió con los valores informados.
+- Segunda grabación real a 1080p/60 fps con VP9: `actualFps: 60` pero `measuredFps: 39,6`; la
+  interfaz avisó de la diferencia en lugar de presentar 60 fps como tiempo real obtenido.
+- El sondeo de `MediaRecorder` verificó por escritura real VP8, VP9, AV1, MP4 AVC/AV1 y
+  Matroska H.264. Las peticiones de 4K/120 fps sobre una fuente 1080p60 se degradan y se avisa.

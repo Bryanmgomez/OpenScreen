@@ -22,7 +22,7 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
 | `capture:sources-changed` | evento main → renderer | — | `CaptureSnapshot` |
 | `audio:get-support` | invoke | — | `AudioSupport` (capacidades reales; nunca compatibilidad supuesta) |
 | `recording:get-status` | invoke | — | `RecordingStatus` |
-| `recording:begin` | invoke | `RecordingBeginRequest` (estricto) | `RecordingStatus` |
+| `recording:begin` | invoke | `RecordingBeginRequest` (estricto, incluye `EncodingPlan`) | `RecordingStatus` |
 | `recording:pause` | invoke | — | `RecordingStatus` |
 | `recording:resume` | invoke | — | `RecordingStatus` |
 | `recording:append-chunk` | invoke | `RecordingChunk` (estricto) | `RecordingStatus` |
@@ -36,6 +36,7 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
 | `recording:delete` | invoke | `RecordingFilePath` (estricto) | `RecordingList` |
 | `recording:pick-output-dir` | invoke | — | `string \| null` |
 | `recording:check-ffmpeg` | invoke | — | `boolean` |
+| `recording:get-encoding-capabilities` | invoke | — | `EncodingCapabilities` (formatos/códecs/aceleración probados; nunca inferidos) |
 | `recording:status-changed` | evento main → renderer | — | `RecordingStatus` |
 
 ## Garantías
@@ -47,8 +48,12 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
    devuelve como no disponible; nunca se sustituye silenciosamente por otra fuente.
 5. El estado de grabación y los archivos los controla main: solo hay una sesión activa, los chunks
    se escriben en orden y las rutas de reveal/open/delete se restringen a la carpeta de salida.
-6. FFmpeg se lanza con arreglos de argumentos; nunca se concatena una cadena de shell.
-7. El permiso `media` se concede solo para audio: la cámara sigue bloqueada. El loopback del
+6. FFmpeg se lanza con arreglos de argumentos; nunca se concatena una cadena de shell. Antes de
+   ofrecer un formato, códec o acelerador se comprueba con un sondeo y una codificación de prueba reales.
+7. `recording:begin` valida el plan contra esas capacidades; una combinación no verificada se rechaza.
+8. `RecordingStatus.encoding` informa de los valores realmente obtenidos y de los FPS medidos,
+   no solo de los solicitados.
+9. El permiso `media` se concede solo para audio: la cámara sigue bloqueada. El loopback del
    sistema lo concede main solo cuando la plataforma y los ajustes lo permiten.
 
 Para añadir un canal, sigue los pasos de [CONTRIBUTING.md](../CONTRIBUTING.md).

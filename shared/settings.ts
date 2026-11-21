@@ -5,7 +5,17 @@ import {
   DEFAULT_AUDIO_SETTINGS
 } from './audio'
 import { captureRegionSchema, sourceRefSchema } from './capture'
-import { recordingFormatSchema, recordingQualitySchema } from './recording'
+import {
+  ffmpegPresetSchema,
+  hardwareAccelerationSchema,
+  recordingFpsSchema,
+  recordingFormatSchema,
+  recordingProfileSchema,
+  recordingQualitySchema,
+  recordingResolutionSchema,
+  videoCodecSchema,
+  type RecordingProfile
+} from './encoding'
 
 /**
  * Esquema de ajustes persistentes.
@@ -43,6 +53,19 @@ const DEFAULT_RECORDING_SETTINGS = {
   showCursor: true,
   quality: 'balanced' as z.infer<typeof recordingQualitySchema>,
   format: 'webm' as z.infer<typeof recordingFormatSchema>,
+  resolution: 'original' as z.infer<typeof recordingResolutionSchema>,
+  fps: 30 as z.infer<typeof recordingFpsSchema>,
+  codec: 'auto' as z.infer<typeof videoCodecSchema>,
+  hardware: 'auto' as z.infer<typeof hardwareAccelerationSchema>,
+  /** Solo se usa cuando `quality === 'custom'`. */
+  bitrate: null as number | null,
+  /** Solo se usa en la ruta FFmpeg; `null` = CRF del preset de calidad. */
+  crf: null as number | null,
+  keyframeInterval: null as number | null,
+  preset: null as z.infer<typeof ffmpegPresetSchema> | null,
+  /** Perfiles creados por el usuario; los integrados se añaden en la interfaz. */
+  profiles: [] as RecordingProfile[],
+  activeProfileId: null as string | null,
   fileNameTemplate: 'OpenScreen-{date}-{time}',
   // `null` = buscar `ffmpeg` en PATH; si se indica, debe ser un ejecutable real.
   ffmpegPath: null as string | null
@@ -54,6 +77,16 @@ const recordingSettingsSchema = z
     showCursor: z.boolean().catch(DEFAULT_RECORDING_SETTINGS.showCursor),
     quality: recordingQualitySchema.catch(DEFAULT_RECORDING_SETTINGS.quality),
     format: recordingFormatSchema.catch(DEFAULT_RECORDING_SETTINGS.format),
+    resolution: recordingResolutionSchema.catch(DEFAULT_RECORDING_SETTINGS.resolution),
+    fps: recordingFpsSchema.catch(DEFAULT_RECORDING_SETTINGS.fps),
+    codec: videoCodecSchema.catch(DEFAULT_RECORDING_SETTINGS.codec),
+    hardware: hardwareAccelerationSchema.catch(DEFAULT_RECORDING_SETTINGS.hardware),
+    bitrate: z.number().int().min(500_000).max(100_000_000).nullable().catch(null),
+    crf: z.number().int().min(0).max(51).nullable().catch(null),
+    keyframeInterval: z.number().int().min(1).max(600).nullable().catch(null),
+    preset: ffmpegPresetSchema.nullable().catch(null),
+    profiles: z.array(recordingProfileSchema).catch([]),
+    activeProfileId: z.string().nullable().catch(null),
     fileNameTemplate: z.string().min(1).catch(DEFAULT_RECORDING_SETTINGS.fileNameTemplate),
     ffmpegPath: z.string().nullable().catch(DEFAULT_RECORDING_SETTINGS.ffmpegPath)
   })
@@ -100,6 +133,16 @@ export const settingsPatchSchema = z
         showCursor: z.boolean().optional(),
         quality: recordingQualitySchema.optional(),
         format: recordingFormatSchema.optional(),
+        resolution: recordingResolutionSchema.optional(),
+        fps: recordingFpsSchema.optional(),
+        codec: videoCodecSchema.optional(),
+        hardware: hardwareAccelerationSchema.optional(),
+        bitrate: z.number().int().min(500_000).max(100_000_000).nullable().optional(),
+        crf: z.number().int().min(0).max(51).nullable().optional(),
+        keyframeInterval: z.number().int().min(1).max(600).nullable().optional(),
+        preset: ffmpegPresetSchema.nullable().optional(),
+        profiles: z.array(recordingProfileSchema).optional(),
+        activeProfileId: z.string().nullable().optional(),
         fileNameTemplate: z.string().min(1).optional(),
         ffmpegPath: z.string().nullable().optional()
       })
@@ -150,6 +193,33 @@ export function mergeSettings(current: Settings, patch: SettingsPatch): Settings
       format: patch.recording?.format !== undefined
         ? patch.recording.format
         : current.recording.format,
+      resolution:
+        patch.recording?.resolution !== undefined
+          ? patch.recording.resolution
+          : current.recording.resolution,
+      fps: patch.recording?.fps !== undefined ? patch.recording.fps : current.recording.fps,
+      codec: patch.recording?.codec !== undefined ? patch.recording.codec : current.recording.codec,
+      hardware:
+        patch.recording?.hardware !== undefined
+          ? patch.recording.hardware
+          : current.recording.hardware,
+      bitrate:
+        patch.recording?.bitrate !== undefined ? patch.recording.bitrate : current.recording.bitrate,
+      crf: patch.recording?.crf !== undefined ? patch.recording.crf : current.recording.crf,
+      keyframeInterval:
+        patch.recording?.keyframeInterval !== undefined
+          ? patch.recording.keyframeInterval
+          : current.recording.keyframeInterval,
+      preset:
+        patch.recording?.preset !== undefined ? patch.recording.preset : current.recording.preset,
+      profiles:
+        patch.recording?.profiles !== undefined
+          ? patch.recording.profiles
+          : current.recording.profiles,
+      activeProfileId:
+        patch.recording?.activeProfileId !== undefined
+          ? patch.recording.activeProfileId
+          : current.recording.activeProfileId,
       fileNameTemplate:
         patch.recording?.fileNameTemplate !== undefined
           ? patch.recording.fileNameTemplate

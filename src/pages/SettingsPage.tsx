@@ -4,6 +4,7 @@ import { AudioSection } from './settings/AudioSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { PendingSection } from './settings/PendingSection'
 import { RecordingSection } from './settings/RecordingSection'
+import { VideoSection } from './settings/VideoSection'
 import { SETTINGS_SECTIONS } from './settings/sections'
 import { SideNav } from '@/components/ui/SideNav'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -36,6 +37,7 @@ export function SettingsPage() {
           {active?.id === 'appearance' && <AppearanceSection />}
           {active?.id === 'audio' && <AudioSection />}
           {active?.id === 'storage' && <RecordingSection />}
+          {(active?.id === 'video' || active?.id === 'performance') && <VideoSection />}
           {active?.pending && <PendingSection section={active} />}
         </div>
       </div>

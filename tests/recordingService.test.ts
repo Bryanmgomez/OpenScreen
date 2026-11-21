@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_AUDIO_SETTINGS, type AudioSupport } from '@shared/audio'
 import type { CaptureSnapshot, SourceRef } from '@shared/capture'
 import type {
-  RecordingBeginRequest,
-  RecordingFormat,
-  RecordingQuality
-} from '@shared/recording'
+  EncodingCapabilities,
+  EncodingPlan,
+  RecordingFormat
+} from '@shared/encoding'
+import type { RecordingBeginRequest } from '@shared/recording'
 import { SettingsService } from '../electron/services/settings/settingsService'
 import { RecordingService, type FfmpegPort } from '../electron/services/recording/recordingService'
-import { metadataPathFor, tempPathFor } from '../electron/services/recording/model'
+import { metadataPathFor, tempPathFor, type FfmpegArgsOptions } from '../electron/services/recording/model'
 
 const source: SourceRef = {
   id: 'screen:1',
@@ -36,11 +37,33 @@ const audioSupport: AudioSupport = {
   notes: []
 }
 
+function encodingPlan(format: RecordingFormat): EncodingPlan {
+  return {
+    format,
+    codec: format === 'webm' ? 'vp9' : 'h264',
+    resolution: 'original',
+    fps: 30,
+    quality: 'balanced',
+    hardware: 'cpu',
+    bitrate: 6_000_000,
+    crf: null,
+    keyframeInterval: null,
+    preset: null,
+    transcode: format !== 'webm',
+    streamCopy: false,
+    actualWidth: 1920,
+    actualHeight: 1080,
+    actualFps: 30,
+    measuredFps: 29.8
+  }
+}
+
 function beginRequest(format: RecordingFormat = 'webm'): RecordingBeginRequest {
   return {
     source,
     options: { ...options, format },
     audio: structuredClone(DEFAULT_AUDIO_SETTINGS),
+    encoding: encodingPlan(format),
     mimeType: format === 'mp4' ? 'video/mp4' : 'video/webm;codecs=vp8',
     extension: format
   }
@@ -56,16 +79,26 @@ function capturePort(): { getSnapshot: () => Promise<CaptureSnapshot> } {
   }
 }
 
-type TranscodeFn = (options: {
-  input: string
-  output: string
-  format: RecordingFormat
-  quality: RecordingQuality
-  audioInputs?: readonly string[]
-}) => Promise<void>
+type TranscodeFn = (options: FfmpegArgsOptions) => Promise<void>
+
+function fakeCapabilities(): EncodingCapabilities {
+  const ok = { available: true, reason: null }
+  return {
+    ffmpeg: { ...ok, version: 'test-1.0' },
+    formats: { webm: ok, mp4: ok, mkv: ok },
+    codecs: { h264: ok, h265: ok, av1: ok, vp8: ok, vp9: ok, auto: ok },
+    hardware: { auto: ok, cpu: ok, nvenc: ok, amf: ok, qsv: ok },
+    encoderNames: [],
+    hwaccels: []
+  }
+}
 
 function fakeFfmpeg(transcode: TranscodeFn = vi.fn(async () => undefined)): FfmpegPort & { transcode: TranscodeFn } {
-  return { isAvailable: async () => true, transcode }
+  return {
+    isAvailable: async () => true,
+    transcode,
+    getEncodingCapabilities: async () => fakeCapabilities()
+  }
 }
 
 describe('RecordingService (integración con archivos reales)', () => {
@@ -237,7 +270,7 @@ describe('RecordingService (integración con archivos reales)', () => {
 
   it('rechaza MP4 cuando no hay FFmpeg disponible', async () => {
     const service = createService({ isAvailable: async () => false, transcode: async () => undefined })
-    await expect(service.begin(beginRequest('mp4'))).rejects.toThrow(/MP4 requiere FFmpeg/)
+    await expect(service.begin(beginRequest('mp4'))).rejects.toThrow(/requiere FFmpeg/i)
     expect(service.getStatus().state).toBe('idle')
   })
 

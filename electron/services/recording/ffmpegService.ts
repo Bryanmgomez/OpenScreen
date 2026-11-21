@@ -1,6 +1,7 @@
 import { spawn, type SpawnOptionsWithoutStdio } from 'node:child_process'
-import type { RecordingFormat, RecordingQuality } from '../../../shared/recording'
-import { buildFfmpegArgs } from './model'
+import type { EncodingCapabilities } from '../../../shared/encoding'
+import { probeFfmpegCapabilities } from './encodingProbe'
+import { buildFfmpegArgs, type FfmpegArgsOptions } from './model'
 
 type SpawnFn = (
   command: string,
@@ -8,11 +9,16 @@ type SpawnFn = (
   options?: SpawnOptionsWithoutStdio
 ) => ReturnType<typeof spawn>
 
+export type FfmpegTranscodeOptions = FfmpegArgsOptions
+
 /**
- * Integración real de FFmpeg. Se usa solo cuando el formato elegido no puede producirse
- * con MediaRecorder (MP4) o para transcodificar. Nunca se usa un string de shell.
+ * Integración real de FFmpeg. Se usa solo cuando MediaRecorder no puede producir el resultado
+ * elegido (códec, aceleración o parámetros avanzados). Nunca se usa un string de shell.
  */
 export class FfmpegService {
+  private capabilities: Promise<EncodingCapabilities> | null = null
+  private cachedBinary: string | null = null
+
   constructor(
     private readonly resolveBinary: () => string | null,
     private readonly spawnFn: SpawnFn = spawn
@@ -22,30 +28,45 @@ export class FfmpegService {
     return this.resolveBinary() || 'ffmpeg'
   }
 
+  /** Sondeo real y cacheado; cambiar la ruta de FFmpeg invalida la caché. */
+  getEncodingCapabilities(): Promise<EncodingCapabilities> {
+    const binary = this.binary
+    if (!this.capabilities || this.cachedBinary !== binary) {
+      this.cachedBinary = binary
+      this.capabilities = probeFfmpegCapabilities((args, timeoutMs) =>
+        this.capture(args, timeoutMs)
+      )
+    }
+    return this.capabilities
+  }
+
   async isAvailable(): Promise<boolean> {
     try {
-      await this.run(['-version'], 4000)
+      await this.execute(['-version'], 4000)
       return true
     } catch {
       return false
     }
   }
 
-  async transcode(options: {
-    input: string
-    output: string
-    format: RecordingFormat
-    quality: RecordingQuality
-    audioInputs?: readonly string[]
-  }): Promise<void> {
-    const args = buildFfmpegArgs(options)
-    if (args.length === 0) return
-    await this.run(args)
+  /** Salida real de un comando de sondeo, con timeout y sin shells. */
+  async capture(args: readonly string[], timeoutMs = 4000): Promise<string> {
+    return (await this.execute(args, timeoutMs)).stdout
   }
 
-  private run(args: readonly string[], timeoutMs?: number): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+  async transcode(options: FfmpegTranscodeOptions): Promise<void> {
+    const args = buildFfmpegArgs(options)
+    if (args.length === 0) return
+    await this.execute(args)
+  }
+
+  private execute(
+    args: readonly string[],
+    timeoutMs?: number
+  ): Promise<{ stdout: string; stderr: string }> {
+    return new Promise((resolve, reject) => {
       const child = this.spawnFn(this.binary, args, { windowsHide: true })
+      let stdout = ''
       let stderr = ''
       let settled = false
       let timer: ReturnType<typeof setTimeout> | null = null
@@ -55,10 +76,12 @@ export class FfmpegService {
         settled = true
         if (timer) clearTimeout(timer)
         if (error) reject(error)
-        else resolve()
+        else resolve({ stdout, stderr })
       }
 
-      child.stdout?.on('data', () => undefined)
+      child.stdout?.on('data', (chunk: Buffer | string) => {
+        stdout = (stdout + String(chunk)).slice(-100_000)
+      })
       child.stderr?.on('data', (chunk: Buffer | string) => {
         stderr = (stderr + String(chunk)).slice(-8000)
       })

@@ -113,6 +113,55 @@ describe('modelo de grabación', () => {
     expect(args.every((arg) => typeof arg === 'string')).toBe(true)
   })
 
+  it('respeta el formato, el códec y los parámetros avanzados', () => {
+    const mkv = buildFfmpegArgs({
+      input: 'in.webm',
+      output: 'out.mkv',
+      format: 'mkv',
+      quality: 'balanced'
+    })
+    expect(mkv).toContain('-f')
+    expect(mkv).toContain('matroska')
+    expect(mkv).toContain('-c')
+    expect(mkv).toContain('copy')
+
+    const hevc = buildFfmpegArgs({
+      input: 'in.webm',
+      output: 'out.mp4',
+      format: 'mp4',
+      quality: 'custom',
+      codec: 'h265',
+      hardware: 'cpu',
+      bitrate: 8_000_000,
+      crf: null,
+      keyframeInterval: 60,
+      preset: 'fast',
+      width: 1920,
+      height: 1080,
+      fps: 30
+    })
+    expect(hevc).toContain('libx265')
+    expect(hevc).toContain('-b:v')
+    expect(hevc).toContain('8000000')
+    expect(hevc).toContain('-g')
+    expect(hevc).toContain('60')
+    expect(hevc.some((arg) => arg.includes('scale=1920:1080:flags=lanczos'))).toBe(true)
+    expect(hevc.some((arg) => arg.includes('fps=30'))).toBe(true)
+    expect(hevc).toContain('-movflags')
+
+    const nvenc = buildFfmpegArgs({
+      input: 'in.webm',
+      output: 'out.mp4',
+      format: 'mp4',
+      quality: 'high',
+      codec: 'h264',
+      hardware: 'nvenc'
+    })
+    expect(nvenc).toContain('h264_nvenc')
+    expect(nvenc).toContain('-b:v')
+    expect(nvenc).not.toContain('-crf')
+  })
+
   it('resuelve y delimita rutas de salida', () => {
     const videos = resolve('C:/Videos')
     expect(resolveOutputDir(null, videos)).toBe(videos)

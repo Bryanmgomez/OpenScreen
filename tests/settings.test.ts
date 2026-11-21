@@ -93,4 +93,80 @@ describe('mergeSettings', () => {
     expect(merged.audio.separateTracks).toBe(true)
     expect(DEFAULT_SETTINGS.audio.microphone.muted).toBe(false)
   })
+
+  it('combina ajustes de codificación y perfiles sin perder los demás campos', () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, {
+      recording: {
+        resolution: '720p',
+        fps: 24,
+        codec: 'vp9',
+        quality: 'custom',
+        bitrate: 4_000_000,
+        crf: 28,
+        keyframeInterval: 60,
+        preset: 'fast',
+        hardware: 'cpu',
+        profiles: [
+          {
+            id: 'user-1',
+            name: 'Prueba',
+            resolution: '720p',
+            fps: 24,
+            format: 'webm',
+            codec: 'vp9',
+            quality: 'low',
+            hardware: 'auto',
+            bitrate: null,
+            crf: null,
+            keyframeInterval: null,
+            preset: null,
+            builtin: false
+          }
+        ],
+        activeProfileId: 'user-1'
+      }
+    })
+    expect(merged.recording).toMatchObject({
+      resolution: '720p',
+      fps: 24,
+      codec: 'vp9',
+      quality: 'custom',
+      bitrate: 4_000_000,
+      crf: 28,
+      keyframeInterval: 60,
+      preset: 'fast',
+      hardware: 'cpu',
+      activeProfileId: 'user-1'
+    })
+    expect(merged.recording.profiles).toHaveLength(1)
+    expect(merged.recording.format).toBe(DEFAULT_SETTINGS.recording.format)
+    expect(DEFAULT_SETTINGS.recording.quality).toBe('balanced')
+  })
+})
+
+describe('ajustes de codificación', () => {
+  it('rechaza combinaciones inválidas y campos desconocidos', () => {
+    expect(settingsPatchSchema.safeParse({ recording: { fps: 120 } }).success).toBe(true)
+    expect(settingsPatchSchema.safeParse({ recording: { fps: 25 } }).success).toBe(false)
+    expect(settingsPatchSchema.safeParse({ recording: { quality: 'custom' } }).success).toBe(true)
+    expect(settingsPatchSchema.safeParse({ recording: { hardware: 'amd' } }).success).toBe(false)
+    expect(settingsPatchSchema.safeParse({ recording: { bitrate: 100 } }).success).toBe(false)
+    expect(settingsPatchSchema.safeParse({ recording: { invented: true } }).success).toBe(false)
+  })
+
+  it('repara campos de codificación guardados con valores antiguos', () => {
+    const result = parseStoredSettings({
+      recording: {
+        quality: 'equilibrada',
+        fps: 25,
+        resolution: '2160p',
+        hardware: 'auto',
+        codec: 'auto'
+      }
+    })
+    expect(result.recording.quality).toBe('balanced')
+    expect(result.recording.fps).toBe(30)
+    expect(result.recording.resolution).toBe('original')
+    expect(result.recording.profiles).toEqual([])
+  })
 })

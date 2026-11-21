@@ -1,4 +1,5 @@
 import type { AudioSupport } from './audio'
+import type { EncodingCapabilities } from './encoding'
 import type {
   CaptureRegion,
   CaptureSnapshot,
@@ -86,6 +87,8 @@ export interface OpenScreenApi {
     delete(request: RecordingFilePath): Promise<RecordingList>
     pickOutputDir(): Promise<string | null>
     checkFfmpeg(): Promise<boolean>
+    /** Codificadores/tecnologías realmente detectados, nunca una lista supuesta. */
+    getEncodingCapabilities(): Promise<EncodingCapabilities>
     onStatusChange(listener: (status: RecordingStatus) => void): Unsubscribe
   }
 }

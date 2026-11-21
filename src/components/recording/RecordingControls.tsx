@@ -1,15 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Circle, FolderOpen, Pause, Play, Square, Video, X } from 'lucide-react'
-import {
-  elapsedMs,
-  type RecordingFormat,
-  type RecordingQuality
-} from '@shared/recording'
+import { elapsedMs } from '@shared/recording'
 import { AudioMixer } from '@/components/recording/AudioMixer'
+import { EncodingSettings } from '@/components/recording/EncodingSettings'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Panel'
-import { Select } from '@/components/ui/Select'
 import { SettingRow } from '@/components/ui/SettingRow'
 import { StatusIndicator } from '@/components/ui/StatusIndicator'
 import { Switch } from '@/components/ui/Switch'
@@ -20,17 +16,6 @@ import { useRecordingStore } from '@/store/recordingStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { formatDuration } from '@/utils/format'
 import { toMessage } from '@/utils/errors'
-
-const QUALITY_OPTIONS = [
-  { value: 'low', label: 'Baja' },
-  { value: 'balanced', label: 'Equilibrada' },
-  { value: 'high', label: 'Alta' }
-] as const
-
-const FORMAT_OPTIONS = [
-  { value: 'webm', label: 'WebM (nativo)' },
-  { value: 'mp4', label: 'MP4 (FFmpeg)' }
-] as const
 
 function statusLabel(state: string): string {
   switch (state) {
@@ -55,8 +40,19 @@ export function RecordingControls() {
   const { settings, update } = useSettingsStore()
   const { snapshot } = useCaptureStore()
   const support = useAudioStore((state) => state.support)
-  const { status, error, busy, ffmpegAvailable, cursorHonored, start, pause, resume, stop, cancel } =
-    useRecordingStore()
+  const {
+    status,
+    error,
+    busy,
+    ffmpegAvailable,
+    cursorHonored,
+    planWarnings,
+    start,
+    pause,
+    resume,
+    stop,
+    cancel
+  } = useRecordingStore()
 
   const active = status.state === 'recording' || status.state === 'paused'
   const selection = snapshot?.selection ?? null
@@ -93,6 +89,7 @@ export function RecordingControls() {
         quality: recording.quality,
         format: recording.format
       },
+      preferences: recording,
       audio: settings.audio,
       support
     })
@@ -152,6 +149,20 @@ export function RecordingControls() {
           <p className="notice notice--error">La fuente guardada desapareció. Elige otra.</p>
         )}
         {error && <p className="notice notice--error">{error}</p>}
+        {planWarnings.map((warning) => (
+          <p className="notice" key={warning}>{warning}</p>
+        ))}
+        {status.encoding && (
+          <p className="field__hint">
+            Aplicado: {status.encoding.actualWidth ?? '?'}×{status.encoding.actualHeight ?? '?'} @{' '}
+            {status.encoding.actualFps ?? '?'} fps
+            {status.encoding.measuredFps !== null
+              ? ` (medidos ${status.encoding.measuredFps.toFixed(1)} fps)`
+              : ''}
+            {' · '}
+            {status.encoding.transcode ? 'transcodificado' : 'sin recodificar'}
+          </p>
+        )}
         {cursorHonored === false && (
           <p className="notice">
             Este sistema no permite ocultar el cursor mediante la API de captura; la preferencia se
@@ -173,20 +184,7 @@ export function RecordingControls() {
               onChange={(showCursor) => void update({ recording: { showCursor } })}
             />
           </SettingRow>
-          <Select
-            label="Calidad"
-            value={recording.quality}
-            options={QUALITY_OPTIONS}
-            disabled={busy}
-            onChange={(value) => void update({ recording: { quality: value as RecordingQuality } })}
-          />
-          <Select
-            label="Formato"
-            value={recording.format}
-            options={FORMAT_OPTIONS}
-            disabled={busy}
-            onChange={(value) => void update({ recording: { format: value as RecordingFormat } })}
-          />
+          <EncodingSettings disabled={busy || active} />
           <div className="field">
             <label className="field__label" htmlFor="recording-template">
               Plantilla de nombre

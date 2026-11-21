@@ -7,6 +7,20 @@ import {
   audioTrackRuntimeSchema
 } from './audio'
 import { sourceRefSchema } from './capture'
+import {
+  encodingPlanSchema,
+  recordingFormatSchema,
+  recordingQualitySchema,
+  type RecordingFormat
+} from './encoding'
+
+export {
+  recordingFormatSchema,
+  recordingQualitySchema,
+  QUALITY_BITRATES,
+  type RecordingFormat,
+  type RecordingQuality
+} from './encoding'
 
 /**
  * Contrato del motor de grabación. El estado autoritativo vive en main: el renderer solo
@@ -24,14 +38,6 @@ export const RECORDING_STATES = [
 ] as const
 export const recordingStateSchema = z.enum(RECORDING_STATES)
 export type RecordingState = z.infer<typeof recordingStateSchema>
-
-export const RECORDING_QUALITIES = ['low', 'balanced', 'high'] as const
-export const recordingQualitySchema = z.enum(RECORDING_QUALITIES)
-export type RecordingQuality = z.infer<typeof recordingQualitySchema>
-
-export const RECORDING_FORMATS = ['webm', 'mp4'] as const
-export const recordingFormatSchema = z.enum(RECORDING_FORMATS)
-export type RecordingFormat = z.infer<typeof recordingFormatSchema>
 
 export const recordingOptionsSchema = z
   .object({
@@ -105,6 +111,8 @@ export const recordingStatusSchema = z.object({
   outputPath: z.string().nullable(),
   tempPath: z.string().nullable(),
   mimeType: z.string().nullable(),
+  /** Plan aplicado, con los valores realmente obtenidos de la fuente. */
+  encoding: encodingPlanSchema.nullable(),
   error: z.string().nullable(),
   lastRecording: recordingFileSchema.nullable(),
   audio: recordingAudioStatusSchema
@@ -122,6 +130,7 @@ export const EMPTY_RECORDING_STATUS: RecordingStatus = {
   outputPath: null,
   tempPath: null,
   mimeType: null,
+  encoding: null,
   error: null,
   lastRecording: null,
   audio: EMPTY_RECORDING_AUDIO_STATUS
@@ -132,8 +141,10 @@ export const recordingBeginRequestSchema = z
     source: sourceRefSchema,
     options: recordingOptionsSchema,
     audio: audioSettingsSchema,
+    /** Plan de codificación resuelto por el renderer y validado por main. */
+    encoding: encodingPlanSchema,
     mimeType: z.string().min(1),
-    extension: z.enum(['webm', 'mp4'])
+    extension: recordingFormatSchema
   })
   .strict()
 export type RecordingBeginRequest = z.infer<typeof recordingBeginRequestSchema>
@@ -191,13 +202,6 @@ export type RecordingFilePath = z.infer<typeof recordingFilePathSchema>
 
 export const recordingListSchema = z.array(recordingFileSchema)
 export type RecordingList = z.infer<typeof recordingListSchema>
-
-/** Bitrate de vídeo por calidad. Se usa tanto al crear MediaRecorder como al transcodificar. */
-export const QUALITY_BITRATES: Readonly<Record<RecordingQuality, number>> = {
-  low: 2_500_000,
-  balanced: 6_000_000,
-  high: 12_000_000
-}
 
 /** Elige un MIME type realmente soportado; nunca inventa uno. */
 export function chooseRecorderMimeType(

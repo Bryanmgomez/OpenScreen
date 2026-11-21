@@ -12,6 +12,13 @@ import {
   type FileHandle
 } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import {
+  assertEncodingPlan,
+  EMPTY_ENCODING_CAPABILITIES,
+  RESOLUTION_SIZES,
+  type EncodingCapabilities,
+  type EncodingPlan
+} from '../../../shared/encoding'
 import type {
   AudioSupport,
   AudioTrackFile,
@@ -27,7 +34,6 @@ import type {
   RecordingFinishRequest,
   RecordingFormat,
   RecordingList,
-  RecordingQuality,
   RecordingSessionRequest,
   RecordingStatus
 } from '../../../shared/recording'
@@ -44,6 +50,7 @@ import {
   canPause,
   canResume,
   canStart,
+  type FfmpegArgsOptions,
   isFinalRecordingFile,
   isPathInside,
   metadataPathFor,
@@ -55,13 +62,8 @@ import {
 
 export interface FfmpegPort {
   isAvailable(): Promise<boolean>
-  transcode(options: {
-    input: string
-    output: string
-    format: RecordingFormat
-    quality: RecordingQuality
-    audioInputs?: readonly string[]
-  }): Promise<void>
+  transcode(options: FfmpegArgsOptions): Promise<void>
+  getEncodingCapabilities?(): Promise<EncodingCapabilities>
 }
 
 export interface CapturePort {
@@ -103,6 +105,7 @@ function emptyStatus(): RecordingStatus {
     outputPath: null,
     tempPath: null,
     mimeType: null,
+    encoding: null,
     error: null,
     lastRecording: null,
     audio: emptyAudioStatus()
@@ -111,6 +114,13 @@ function emptyStatus(): RecordingStatus {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Error desconocido al grabar.'
+}
+
+function mimeTypeForFile(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.mp4')) return 'video/mp4'
+  if (lower.endsWith('.mkv')) return 'video/x-matroska'
+  return 'video/webm'
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -138,6 +148,7 @@ export class RecordingService {
   private handle: FileHandle | null = null
   private expectedChunk = 0
   private currentFormat: RecordingFormat = 'webm'
+  private currentPlan: EncodingPlan | null = null
   private transcodePath: string | null = null
   private readonly audioHandles: Partial<Record<AudioTrackKind, FileHandle>> = {}
   private readonly expectedAudioChunk: Partial<Record<AudioTrackKind, number>> = {}
@@ -172,16 +183,30 @@ export class RecordingService {
     return this.ffmpeg.isAvailable()
   }
 
+  /** Codificadores y formatos detectados de verdad; nunca una lista estimada. */
+  async getEncodingCapabilities(): Promise<EncodingCapabilities> {
+    return (await this.ffmpeg.getEncodingCapabilities?.()) ?? EMPTY_ENCODING_CAPABILITIES
+  }
+
   /** Reserva la sesión y crea el archivo temporal. Falla si ya hay una grabación activa. */
   async begin(request: RecordingBeginRequest): Promise<RecordingStatus> {
     if (!canStart(this.status.state)) {
       throw new Error('Ya hay una grabación en curso. Termínala antes de empezar otra.')
     }
-    if (normalizeExtension(request.extension) !== request.options.format) {
-      throw new Error('La extensión no coincide con el formato elegido.')
+    if (
+      normalizeExtension(request.extension) !== request.options.format ||
+      request.encoding.format !== request.options.format
+    ) {
+      throw new Error('La extensión, el formato y el plan de codificación no coinciden.')
     }
-    if (request.options.format === 'mp4' && !(await this.ffmpeg.isAvailable())) {
-      throw new Error('MP4 requiere FFmpeg. Instálalo o elige WebM.')
+    const ffmpegNeeded = request.encoding.transcode
+    if (ffmpegNeeded) {
+      const capabilities = await this.getEncodingCapabilities()
+      const problem = assertEncodingPlan(request.encoding, capabilities)
+      if (problem) throw new Error(problem)
+      if (!(await this.ffmpeg.isAvailable())) {
+        throw new Error('La combinación elegida requiere FFmpeg. Instálalo o elige WebM nativo.')
+      }
     }
 
     const support = this.options.getAudioSupport()
@@ -215,6 +240,7 @@ export class RecordingService {
     // audio no deja temporales vacíos.
     this.expectedChunk = 0
     this.currentFormat = request.options.format
+    this.currentPlan = request.encoding
     this.transcodePath = null
     const audio = emptyAudioStatus()
     audio.support = support
@@ -245,6 +271,7 @@ export class RecordingService {
       outputPath: finalPath,
       tempPath,
       mimeType: request.mimeType,
+      encoding: request.encoding,
       audio
     }
     this.emit()
@@ -355,22 +382,49 @@ export class RecordingService {
 
     try {
       const tracks = await this.finishAudioTracks(finalPath)
-      const ffmpegNeeded = this.currentFormat === 'mp4' || tracks.length > 0
+      const plan = this.currentPlan
+      const ffmpegNeeded = plan?.transcode ?? tracks.length > 0
       if (ffmpegNeeded) {
         if (!(await this.ffmpeg.isAvailable())) {
           // En WebM las pistas ya están guardadas como archivos Opus independientes.
-          if (this.currentFormat !== 'mp4') {
+          if (this.currentFormat === 'webm' && !plan?.transcode) {
             await rename(tempPath, finalPath)
             return this.publishFinished(finalPath, request.durationMs, tracks)
           }
-          throw new Error('MP4 requiere FFmpeg. Instálalo o elige WebM.')
+          throw new Error('La codificación elegida requiere FFmpeg. Instálalo o elige WebM nativo.')
         }
+        const targetSize = plan ? RESOLUTION_SIZES[plan.resolution] : null
+        const needsScale = Boolean(
+          !plan?.streamCopy &&
+            plan &&
+            targetSize &&
+            (plan.actualWidth !== targetSize.width || plan.actualHeight !== targetSize.height)
+        )
+        const needsFpsChange = Boolean(
+          !plan?.streamCopy &&
+            plan &&
+            plan.actualFps !== null &&
+            Math.abs(plan.actualFps - plan.fps) > 1
+        )
         this.transcodePath = `${finalPath}.ffmpeg.part`
         await this.ffmpeg.transcode({
           input: tempPath,
           output: this.transcodePath,
           format: this.currentFormat,
-          quality: this.options.settings.get().recording.quality,
+          quality: plan?.quality ?? 'balanced',
+          ...(plan?.streamCopy
+            ? {}
+            : {
+                codec: plan?.codec,
+                hardware: plan?.hardware,
+                bitrate: plan?.bitrate,
+                crf: plan?.crf,
+                keyframeInterval: plan?.keyframeInterval,
+                preset: plan?.preset
+              }),
+          width: needsScale && targetSize ? targetSize.width : null,
+          height: needsScale && targetSize ? targetSize.height : null,
+          fps: needsFpsChange ? plan?.fps : null,
           audioInputs: tracks.map((track) => track.path)
         })
         await rename(this.transcodePath, finalPath)
@@ -424,7 +478,7 @@ export class RecordingService {
           path,
           name: entry.name,
           size: info.size,
-          mimeType: entry.name.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'video/webm',
+          mimeType: mimeTypeForFile(entry.name),
           durationMs: await this.readDuration(path),
           createdAt: info.mtimeMs,
           tracks: await this.readTracks(path)
@@ -472,10 +526,12 @@ export class RecordingService {
     tracks: AudioTrackFile[]
   ): Promise<RecordingStatus> {
     const info = await stat(finalPath)
-    const mimeType = this.currentFormat === 'mp4' ? 'video/mp4' : (this.status.mimeType ?? 'video/webm')
+    const mimeType = this.currentFormat === 'webm'
+      ? (this.status.mimeType ?? 'video/webm')
+      : mimeTypeForFile(finalPath)
     await writeFile(
       metadataPathFor(finalPath),
-      JSON.stringify({ durationMs, mimeType, tracks }),
+      JSON.stringify({ durationMs, mimeType, tracks, encoding: this.currentPlan }),
       'utf8'
     )
     const file: RecordingFile = {

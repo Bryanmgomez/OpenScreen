@@ -36,6 +36,7 @@ export function registerRecordingHandlers(recording: RecordingService): void {
   })
   handle(C.delete, recordingFilePathSchema, async ({ path }) => recording.delete(path))
   handle(C.checkFfmpeg, z.undefined(), () => recording.checkFfmpeg())
+  handle(C.getEncodingCapabilities, z.undefined(), () => recording.getEncodingCapabilities())
   handle(C.pickOutputDir, z.undefined(), async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory'],

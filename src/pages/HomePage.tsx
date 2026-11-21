@@ -2,15 +2,15 @@ import { Circle, Film, History, Mic, Monitor } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Logo } from '@/components/brand/Logo'
 import { Panel } from '@/components/ui/Panel'
-import { PendingControl } from '@/components/ui/PendingControl'
 import { SettingRow } from '@/components/ui/SettingRow'
 import { StatusIndicator } from '@/components/ui/StatusIndicator'
 import { useRecordings } from '@/hooks/useRecordings'
 import { RecordingCard } from '@/components/recordings/RecordingCard'
-import { PENDING_CONTROLS as C } from '@/utils/pendingControls'
+import { useSettingsStore } from '@/store/settingsStore'
 
 export function HomePage() {
   const { items } = useRecordings()
+  const settings = useSettingsStore((state) => state.settings)
   const recent = items.slice(0, 3)
 
   return (
@@ -51,10 +51,10 @@ export function HomePage() {
 
         <Panel title="Ajustes rápidos" icon={<Film size={16} />}>
           <SettingRow label="Resolución">
-            <PendingControl def={C.resolution} />
+            <StatusIndicator tone="success" label={settings?.recording.resolution ?? 'Original'} />
           </SettingRow>
           <SettingRow label="FPS">
-            <PendingControl def={C.fps} />
+            <StatusIndicator tone="success" label={`${settings?.recording.fps ?? 30} fps`} />
           </SettingRow>
           <SettingRow label="Audio del sistema">
             <StatusIndicator tone="success" label="Mezclador disponible" />
@@ -63,7 +63,7 @@ export function HomePage() {
             <Link className="btn btn--ghost" to="/settings">Configurar</Link>
           </SettingRow>
           <div className="panel__note">
-            <Mic size={12} /> Audio: Sesión 05 · Video: Fase 4
+            <Mic size={12} /> Calidad y codificación: Sesión 06
           </div>
         </Panel>
       </div>

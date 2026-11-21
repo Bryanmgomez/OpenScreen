@@ -1,9 +1,18 @@
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
-import type {
-  RecordingFormat,
-  RecordingQuality,
-  RecordingState
-} from '../../../shared/recording'
+import {
+  containerFor,
+  ffmpegEncoderFor,
+  FFMPEG_CRF,
+  resolveBitrate,
+  resolveCodec,
+  type FfmpegPreset,
+  type HardwareAcceleration,
+  type RecordingFormat,
+  type RecordingFps,
+  type RecordingQuality,
+  type VideoCodec
+} from '../../../shared/encoding'
+import type { RecordingState } from '../../../shared/recording'
 
 /**
  * Lógica pura del motor de grabación. No importa Electron ni MediaRecorder, así que puede
@@ -62,14 +71,9 @@ export function withUniqueSuffix(name: string, ordinal: number): string {
   return `${stem}-${ordinal}${extension}`
 }
 
-export function normalizeExtension(extension: string): 'webm' | 'mp4' {
-  return extension.toLowerCase() === 'mp4' ? 'mp4' : 'webm'
-}
-
-const FFMPEG_CRF: Readonly<Record<RecordingQuality, string>> = {
-  low: '32',
-  balanced: '23',
-  high: '18'
+export function normalizeExtension(extension: string): RecordingFormat {
+  const value = extension.toLowerCase()
+  return value === 'mp4' || value === 'mkv' ? value : 'webm'
 }
 
 /** MediaRecorder solo puede iniciar desde inactivo (o tras un error ya limpiado). */
@@ -89,18 +93,98 @@ export function canFinish(state: RecordingState): boolean {
   return state === 'recording' || state === 'paused'
 }
 
-/** Comandos para FFmpeg siempre como array: nunca se construye un string de shell. */
-export function buildFfmpegArgs(options: {
+export interface FfmpegArgsOptions {
   input: string
   output: string
-  quality: RecordingQuality
   format: RecordingFormat
+  quality: RecordingQuality
   /** Vídeo + pistas independientes, en este orden: micrófono, sistema. */
   audioInputs?: readonly string[]
-}): string[] {
+  codec?: VideoCodec
+  hardware?: HardwareAcceleration
+  bitrate?: number
+  crf?: number | null
+  keyframeInterval?: number | null
+  preset?: FfmpegPreset | null
+  /** Tamaño y cadencia finales cuando la fuente no entrega lo solicitado. */
+  width?: number | null
+  height?: number | null
+  fps?: RecordingFps | null
+}
+
+function isHardwareEncoder(encoder: string): boolean {
+  return /_(nvenc|amf|qsv)$/.test(encoder)
+}
+
+function presetArgs(encoder: string, preset: FfmpegPreset | null | undefined): string[] {
+  if (!preset || isHardwareEncoder(encoder)) return []
+  if (encoder === 'libsvtav1') {
+    const values: Record<FfmpegPreset, string> = {
+      ultrafast: '12',
+      veryfast: '10',
+      fast: '8',
+      medium: '6',
+      slow: '3'
+    }
+    return ['-preset', values[preset]]
+  }
+  if (encoder === 'libvpx' || encoder === 'libvpx-vp9') {
+    const values: Record<FfmpegPreset, string> = {
+      ultrafast: '8',
+      veryfast: '6',
+      fast: '4',
+      medium: '2',
+      slow: '0'
+    }
+    return ['-deadline', 'good', '-cpu-used', values[preset]]
+  }
+  return ['-preset', preset]
+}
+
+function qualityArgs(options: FfmpegArgsOptions, encoder: string): string[] {
+  // Los codificadores de hardware no aceptan CRF: se les entrega un bitrate explícito.
+  if (isHardwareEncoder(encoder)) {
+    return ['-b:v', String(resolveBitrate(options.quality, options.bitrate ?? null))]
+  }
+  if (options.crf !== null && options.crf !== undefined) {
+    return encoder.startsWith('libvpx')
+      ? ['-crf', String(options.crf), '-b:v', '0']
+      : ['-crf', String(options.crf)]
+  }
+  if (options.bitrate !== undefined && options.quality === 'custom') {
+    return ['-b:v', String(options.bitrate)]
+  }
+  if (options.quality === 'custom') {
+    return ['-crf', FFMPEG_CRF.balanced]
+  }
+  return ['-crf', FFMPEG_CRF[options.quality]]
+}
+
+/**
+ * Comandos para FFmpeg siempre como array: nunca se construye un string de shell.
+ * WebM sin nuevos parámetros ni pistas independientes no se recodifica: se copia el stream.
+ */
+export function buildFfmpegArgs(options: FfmpegArgsOptions): string[] {
   const audioInputs = options.audioInputs ?? []
+  const wantsScaling = Boolean(options.width && options.height)
+  const wantsFps = options.fps !== null && options.fps !== undefined
+  const wantsEncoder =
+    options.codec !== undefined ||
+    options.hardware !== undefined ||
+    options.bitrate !== undefined ||
+    (options.crf !== undefined && options.crf !== null) ||
+    (options.keyframeInterval !== undefined && options.keyframeInterval !== null) ||
+    (options.preset !== undefined && options.preset !== null)
   // WebM sin pistas independientes ya sale de MediaRecorder: no se recodifica nada.
-  if (options.format !== 'mp4' && audioInputs.length === 0) return []
+  if (
+    options.format === 'webm' &&
+    audioInputs.length === 0 &&
+    !wantsScaling &&
+    !wantsFps &&
+    !wantsEncoder
+  ) {
+    return []
+  }
 
   const args = [
     '-hide_banner',
@@ -122,29 +206,39 @@ export function buildFfmpegArgs(options: {
     args.push('-map', '0:a?')
   }
 
-  if (options.format === 'mp4') {
-    args.push(
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-crf',
-      FFMPEG_CRF[options.quality],
-      '-pix_fmt',
-      'yuv420p',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '128k',
-      '-movflags',
-      '+faststart'
-    )
+  const filters: string[] = []
+  if (wantsScaling) filters.push(`scale=${options.width}:${options.height}:flags=lanczos`)
+  if (wantsFps) filters.push(`fps=${options.fps}`)
+  if (filters.length > 0) args.push('-vf', filters.join(','))
+
+  const needsVideoEncode =
+    options.format === 'mp4' || wantsEncoder || wantsScaling || wantsFps
+  if (needsVideoEncode) {
+    const codec = resolveCodec({
+      codec: options.codec ?? 'auto',
+      format: options.format
+    })
+    const hardware = options.hardware === 'auto' || !options.hardware ? 'cpu' : options.hardware
+    const encoder = ffmpegEncoderFor(codec, hardware) ?? ffmpegEncoderFor(codec, 'cpu')
+    if (!encoder) throw new Error(`No hay un codificador FFmpeg conocido para ${codec}.`)
+    args.push('-c:v', encoder, ...presetArgs(encoder, options.preset))
+    args.push(...qualityArgs(options, encoder))
+    if (options.keyframeInterval !== null && options.keyframeInterval !== undefined) {
+      args.push('-g', String(options.keyframeInterval))
+    }
+    args.push('-pix_fmt', 'yuv420p')
   } else {
-    // WebM/Matroska conserva Opus y el vídeo tal cual: no hay generación perdida.
+    // WebM/Matroska con parámetros por defecto conserva Opus y vídeo: cero pérdida generacional.
     args.push('-c', 'copy')
   }
 
-  args.push('-f', options.format === 'mp4' ? 'mp4' : 'webm', options.output)
+  if (options.format === 'mp4') {
+    args.push('-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart')
+  } else {
+    args.push('-c:a', 'copy')
+  }
+
+  args.push('-f', containerFor(options.format), options.output)
   return args
 }
 
@@ -202,6 +296,6 @@ export function isFinalRecordingFile(name: string): boolean {
   return (
     !isTempFileName(name) &&
     !isAudioTrackFileName(name) &&
-    /\.(webm|mp4)$/i.test(name)
+    /\.(webm|mp4|mkv)$/i.test(name)
   )
 }

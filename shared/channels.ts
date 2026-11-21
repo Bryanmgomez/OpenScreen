@@ -45,6 +45,7 @@ export const IPC_CHANNELS = {
     delete: 'recording:delete',
     pickOutputDir: 'recording:pick-output-dir',
     checkFfmpeg: 'recording:check-ffmpeg',
+    getEncodingCapabilities: 'recording:get-encoding-capabilities',
     statusChanged: 'recording:status-changed'
   }
 } as const

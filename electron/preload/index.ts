@@ -60,6 +60,8 @@ const api: OpenScreenApi = {
     delete: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.delete, request),
     pickOutputDir: () => ipcRenderer.invoke(IPC_CHANNELS.recording.pickOutputDir),
     checkFfmpeg: () => ipcRenderer.invoke(IPC_CHANNELS.recording.checkFfmpeg),
+    getEncodingCapabilities: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.recording.getEncodingCapabilities),
     onStatusChange: (listener) => subscribe(IPC_CHANNELS.recording.statusChanged, listener)
   }
 }

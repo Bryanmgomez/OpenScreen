@@ -13,6 +13,8 @@ interface SelectProps {
   placeholder?: string
   disabled?: boolean
   hideLabel?: boolean
+  /** Valores detectados como no compatibles; se muestran pero no se pueden elegir. */
+  disabledOptions?: readonly string[]
 }
 
 export function Select({
@@ -22,7 +24,8 @@ export function Select({
   onChange,
   placeholder = 'Seleccionar…',
   disabled = false,
-  hideLabel = false
+  hideLabel = false,
+  disabledOptions = []
 }: SelectProps) {
   const id = useId()
   return (
@@ -41,7 +44,7 @@ export function Select({
           {placeholder}
         </option>
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} disabled={disabledOptions.includes(option.value)}>
             {option.label}
           </option>
         ))}
