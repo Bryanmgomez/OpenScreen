@@ -1,0 +1,33 @@
+# Configuración de empaquetado de OpenScreen (Fase 1: solo Windows x64).
+# Pendiente para la Fase 6: icono propio (resources/icons/icon.ico), firma de código,
+# publicación en GitHub Releases (clave `publish`) y objetivos de Linux/macOS.
+appId: org.openscreen.app
+productName: OpenScreen
+copyright: Copyright © OpenScreen contributors. GPL-3.0-only.
+
+directories:
+  buildResources: resources
+  output: dist
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+# Sin publicación automática hasta la Fase 6 (GitHub Releases).
+publish: null
