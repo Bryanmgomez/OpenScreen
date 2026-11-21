@@ -1,6 +1,6 @@
 # Seguridad
 
-Medidas aplicadas en la Fase 1 y dónde viven.
+Medidas aplicadas hasta la Fase 5 (Sesión 07) y dónde viven.
 
 | Medida | Dónde |
 | --- | --- |
@@ -17,28 +17,42 @@ Medidas aplicadas en la Fase 1 y dónde viven.
 | Lectura tolerante y escritura atómica de ajustes | `services/settings/settingsService.ts` |
 | Una sola grabación activa, chunks ordenados y temporales limpios | `services/recording/recordingService.ts` |
 | Rutas de grabación restringidas a la carpeta configurada | `services/recording/model.ts`, `recordingService.ts` |
+| Esquema privado `openscreen-media://` validado en main antes de servir bytes | `main/mediaProtocol.ts` |
+| Renombrado atómico con reversión y borrado limitado a rutas canónicas | `services/recording/recordingService.ts` |
+| Limpieza solo de temporales gestionados huérfanos | `services/recording/recordingService.ts` |
 
 ## CSP de producción
 
 ```
 default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;
-media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none';
+media-src 'self' blob: openscreen-media:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none';
 base-uri 'none'; form-action 'none'
 ```
 
 `style-src 'unsafe-inline'` es necesario porque React usa atributos `style`. No se permiten scripts en línea ni `eval`.
+`openscreen-media:` se registra como esquema privilegiado antes de `ready`, pero mantiene
+`bypassCSP: false`: solo se añade a `media-src`. Main comprueba host, contención de ruta, extensión
+y existencia en cada petición, y responde con CORS únicamente para permitir el fotograma del
+`<canvas>`; no se desactiva `webSecurity` ni se exponen rutas `file://` al renderer.
 
-## Reglas para las siguientes fases
+## Reglas de las fases implementadas
 
-- El permiso `display-capture` ya está habilitado de forma explícita y mínima, solo para el frame principal del renderer propio. Micrófono y audio del sistema se habilitarán en la Fase 3 con el mismo criterio.
+- `display-capture` y `media` (solo audio, nunca cámara) se conceden de forma explícita y mínima al
+  frame principal del renderer propio. El loopback del sistema se concede en Windows cuando la
+  pista está activa y el ajuste es automático.
 - Toda ruta de archivo recibida del renderer se valida y normaliza en main. `recording:reveal`,
-  `recording:open` y `recording:delete` solo operan dentro de la carpeta de grabaciones resuelta.
+  `recording:open`, `recording:delete`, `recording:rename`, `recording:get-media-url` y la limpieza
+  solo operan dentro de la carpeta de grabaciones resuelta.
 - FFmpeg se lanza con arreglos de argumentos (`node:child_process.spawn`), nunca concatenando
   cadenas de shell. La ruta del binario es configurable, pero no se interpreta como comando.
+- La biblioteca solo muestra metadatos validados: lo que no se pudo comprobar viaja como `null` y
+  se etiqueta como desconocido. El borrado requiere escribir el nombre exacto y el renombrado se
+  revierte por completo si falla alguno de sus pasos.
 
 ## Limitaciones conocidas
 
 - Un renderer comprometido aún podría invocar los canales IPC existentes; por eso cada canal valida sus datos y expone solo la operación necesaria. En particular no puede pedir una fuente arbitraria: solo seleccionar una de las enumeradas por main.
+- Mediante `recording:get-media-url` solo puede solicitar contenedores terminados dentro de la carpeta configurada; main vuelve a validar la URL y la ruta en cada petición de bytes. No hay acceso a `file://` arbitrario.
 - No hay firma de código ni actualizaciones automáticas todavía (Fase 6).
 
 ## Reportar vulnerabilidades

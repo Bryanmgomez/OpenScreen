@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
 import { useEffect, useRef, type ReactNode } from 'react'
+import { cn } from '@/utils/cn'
 import { IconButton } from './IconButton'
 
 interface ModalProps {
@@ -7,11 +8,12 @@ interface ModalProps {
   title: string
   onClose: () => void
   footer?: ReactNode
+  className?: string
   children: ReactNode
 }
 
 /** Modal sobre <dialog> nativo: trampa de foco, Esc y bloqueo del fondo los da el navegador. */
-export function Modal({ open, title, onClose, footer, children }: ModalProps) {
+export function Modal({ open, title, onClose, footer, className, children }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -24,7 +26,7 @@ export function Modal({ open, title, onClose, footer, children }: ModalProps) {
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className={cn('modal', className)}
       aria-label={title}
       onClose={onClose}
       onClick={(event) => event.target === ref.current && onClose()}

@@ -9,6 +9,7 @@ import {
   recordingChunkSchema,
   recordingFilePathSchema,
   recordingFinishRequestSchema,
+  recordingRenameRequestSchema,
   recordingSessionRequestSchema
 } from '../../../shared/recording'
 import type { RecordingService } from '../../services/recording/recordingService'
@@ -35,6 +36,10 @@ export function registerRecordingHandlers(recording: RecordingService): void {
     await recording.open(path)
   })
   handle(C.delete, recordingFilePathSchema, async ({ path }) => recording.delete(path))
+  handle(C.rename, recordingRenameRequestSchema, async ({ path, name }) => recording.rename(path, name))
+  handle(C.cleanupTemp, z.undefined(), () => recording.cleanupTempFiles())
+  handle(C.getStorageInfo, z.undefined(), () => recording.getStorageInfo())
+  handle(C.getMediaUrl, recordingFilePathSchema, ({ path }) => recording.getMediaUrl(path))
   handle(C.checkFfmpeg, z.undefined(), () => recording.checkFfmpeg())
   handle(C.getEncodingCapabilities, z.undefined(), () => recording.getEncodingCapabilities())
   handle(C.pickOutputDir, z.undefined(), async () => {

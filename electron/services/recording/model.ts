@@ -12,7 +12,14 @@ import {
   type RecordingQuality,
   type VideoCodec
 } from '../../../shared/encoding'
-import type { RecordingState } from '../../../shared/recording'
+import {
+  normalizedRecordingName,
+  recordingFormatForName,
+  validateRecordingName,
+  type RecordingState
+} from '../../../shared/recording'
+
+export { normalizedRecordingName, validateRecordingName }
 
 /**
  * Lógica pura del motor de grabación. No importa Electron ni MediaRecorder, así que puede
@@ -20,6 +27,8 @@ import type { RecordingState } from '../../../shared/recording'
  */
 
 const INVALID_FILE_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g
+export const RECORDING_MEDIA_PROTOCOL = 'openscreen-media'
+const RECORDING_MEDIA_HOST = 'recording'
 
 /** Convierte cualquier texto (por ejemplo un título de ventana) en un nombre de archivo seguro. */
 export function safeFilePart(value: string): string {
@@ -298,4 +307,44 @@ export function isFinalRecordingFile(name: string): boolean {
     !isAudioTrackFileName(name) &&
     /\.(webm|mp4|mkv)$/i.test(name)
   )
+}
+
+/** Solo los temporales generados por OpenScreen pueden ser limpiados automáticamente. */
+export function isManagedTempFileName(name: string): boolean {
+  if (!isTempFileName(name)) return false
+  const withoutPart = name.slice(0, -'.part'.length)
+  return (
+    /\.(webm|mp4|mkv)$/i.test(withoutPart) ||
+    isAudioTrackFileName(withoutPart) ||
+    /\.ffmpeg$/i.test(withoutPart)
+  )
+}
+
+/** MIME declarado por el contenedor. No pretende haber inspeccionado los bytes. */
+export function mimeTypeForRecordingName(name: string): string {
+  const format = recordingFormatForName(name)
+  if (format === 'mp4') return 'video/mp4'
+  if (format === 'mkv') return 'video/x-matroska'
+  return 'video/webm'
+}
+
+/** URL de esquema privado. El path se codifica como un único segmento. */
+export function mediaUrlFor(path: string): string {
+  return `${RECORDING_MEDIA_PROTOCOL}://${RECORDING_MEDIA_HOST}/${encodeURIComponent(path)}`
+}
+
+/** Devuelve el path original solo si la URL pertenece estrictamente a nuestro esquema. */
+export function pathFromMediaUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== `${RECORDING_MEDIA_PROTOCOL}:`) return null
+    if (parsed.host !== RECORDING_MEDIA_HOST || parsed.search || parsed.hash) return null
+    if (!parsed.pathname.startsWith('/')) return null
+    const encoded = parsed.pathname.slice(1)
+    if (!encoded) return null
+    const decoded = decodeURIComponent(encoded)
+    return decoded || null
+  } catch {
+    return null
+  }
 }

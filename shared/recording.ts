@@ -11,6 +11,7 @@ import {
   encodingPlanSchema,
   recordingFormatSchema,
   recordingQualitySchema,
+  videoCodecSchema,
   type RecordingFormat
 } from './encoding'
 
@@ -48,18 +49,123 @@ export const recordingOptionsSchema = z
   .strict()
 export type RecordingOptions = z.infer<typeof recordingOptionsSchema>
 
+/**
+ * Sidecar `.openscreen.json`. La versión es opcional para poder leer grabaciones de sesiones
+ * anteriores; cualquier campo desconocido se conserva al renombrar.
+ */
+export const RECORDING_METADATA_VERSION = 1
+export const recordingMetadataSchema = z
+  .object({
+    version: z.number().int().positive().nullable().optional(),
+    durationMs: z.number().nonnegative().nullable().optional(),
+    mimeType: z.string().nullable().optional(),
+    tracks: z.array(audioTrackFileSchema).optional(),
+    encoding: encodingPlanSchema.nullable().optional()
+  })
+  .passthrough()
+export type RecordingMetadata = z.infer<typeof recordingMetadataSchema>
+
+export const RECORDING_METADATA_STATUSES = ['ok', 'missing', 'invalid'] as const
+export const recordingMetadataStatusSchema = z.enum(RECORDING_METADATA_STATUSES)
+export type RecordingMetadataStatus = z.infer<typeof recordingMetadataStatusSchema>
+
+/**
+ * Archivo de la biblioteca. Los datos que no pudieron verificarse son `null` y se etiquetan
+ * con `metadataStatus`; nunca se rellena un valor supuesto para mostrarlo como real.
+ */
 export const recordingFileSchema = z
   .object({
     path: z.string(),
     name: z.string(),
     size: z.number().int().nonnegative(),
     mimeType: z.string(),
-    durationMs: z.number().nonnegative(),
+    format: recordingFormatSchema,
+    durationMs: z.number().nonnegative().nullable(),
     createdAt: z.number(),
-    tracks: z.array(audioTrackFileSchema)
+    tracks: z.array(audioTrackFileSchema),
+    metadataStatus: recordingMetadataStatusSchema,
+    codec: videoCodecSchema.nullable(),
+    actualWidth: z.number().int().positive().nullable(),
+    actualHeight: z.number().int().positive().nullable(),
+    actualFps: z.number().positive().nullable(),
+    measuredFps: z.number().positive().nullable(),
+    encoding: encodingPlanSchema.nullable()
   })
   .strict()
 export type RecordingFile = z.infer<typeof recordingFileSchema>
+
+/** Formato declarado por la extensión del contenedor final. */
+export function recordingFormatForName(name: string): RecordingFormat {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.mp4')) return 'mp4'
+  if (lower.endsWith('.mkv')) return 'mkv'
+  return 'webm'
+}
+
+const INVALID_NAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
+const RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+
+function extensionOf(name: string): string {
+  const index = name.lastIndexOf('.')
+  return index > 0 ? name.slice(index).toLowerCase() : ''
+}
+
+/** Validación compartida por main y renderer antes de renombrar un archivo real. */
+export function validateRecordingName(name: string, currentExtension: string): string | null {
+  const trimmed = name.trim()
+  if (!trimmed) return 'Escribe un nombre para la grabación.'
+  if (trimmed === '.' || trimmed === '..') return 'Ese nombre no es válido.'
+  if (INVALID_NAME_CHARS.test(trimmed)) {
+    return 'El nombre no puede contener separadores ni los caracteres < > : " / \\ | ? *.'
+  }
+  if (/[. ]$/.test(trimmed)) return 'El nombre no puede terminar en punto ni en espacio.'
+  const expected = `.${recordingFormatForName(`archivo.${currentExtension}`)}`
+  const extension = extensionOf(trimmed)
+  if (extension !== expected) return `La extensión debe ser ${expected}.`
+  const stem = trimmed.slice(0, -extension.length)
+  if (!stem.trim()) return 'Escribe un nombre antes de la extensión.'
+  if (RESERVED_NAMES.test(stem)) return 'Ese nombre está reservado por Windows.'
+  if (stem.length > 180) return 'El nombre es demasiado largo.'
+  return null
+}
+
+/** Sanea el tronco del nombre conservando la extensión validada. */
+export function normalizedRecordingName(name: string): string {
+  const extension = extensionOf(name)
+  const stem = extension ? name.slice(0, -extension.length) : name
+  const cleaned = stem
+    .replace(INVALID_NAME_CHARS, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '')
+  return `${cleaned || 'grabacion'}${extension}`
+}
+
+export const recordingStorageInfoSchema = z
+  .object({
+    outputDir: z.string(),
+    exists: z.boolean(),
+    writable: z.boolean(),
+    available: z.boolean(),
+    freeBytes: z.number().int().nonnegative().nullable(),
+    reason: z.string().nullable()
+  })
+  .strict()
+export type RecordingStorageInfo = z.infer<typeof recordingStorageInfoSchema>
+
+/** Respuesta única de listado/renombrado/borrado/limpieza: siempre coherente y completa. */
+export const recordingLibrarySnapshotSchema = z
+  .object({
+    items: z.array(recordingFileSchema),
+    outputDir: z.string(),
+    available: z.boolean(),
+    error: z.string().nullable(),
+    tempFiles: z.array(z.string()),
+    storage: recordingStorageInfoSchema,
+    generatedAt: z.number()
+  })
+  .strict()
+export type RecordingLibrarySnapshot = z.infer<typeof recordingLibrarySnapshotSchema>
 
 export const recordingAudioStatusSchema = z
   .object({
@@ -200,8 +306,90 @@ export const recordingFilePathSchema = z
   .strict()
 export type RecordingFilePath = z.infer<typeof recordingFilePathSchema>
 
+/** El nuevo nombre llega completo (con extensión); main valida que sea seguro y único. */
+export const recordingRenameRequestSchema = z
+  .object({
+    path: z.string().min(1),
+    name: z.string().min(1)
+  })
+  .strict()
+export type RecordingRenameRequest = z.infer<typeof recordingRenameRequestSchema>
+
 export const recordingListSchema = z.array(recordingFileSchema)
 export type RecordingList = z.infer<typeof recordingListSchema>
+
+export const RECORDING_SORTS = ['date', 'name', 'duration', 'size'] as const
+export const recordingSortSchema = z.enum(RECORDING_SORTS)
+export type RecordingSort = z.infer<typeof recordingSortSchema>
+
+export const RECORDING_PERIODS = ['all', 'today', '7d', '30d'] as const
+export const recordingPeriodSchema = z.enum(RECORDING_PERIODS)
+export type RecordingPeriod = z.infer<typeof recordingPeriodSchema>
+
+export interface RecordingLibraryFilter {
+  query: string
+  format: RecordingFormat | 'all'
+  period: RecordingPeriod
+  sort: RecordingSort
+  direction: 'asc' | 'desc'
+}
+
+function compareUnknownLast<T>(
+  left: T | null,
+  right: T | null,
+  compare: (a: T, b: T) => number,
+  factor: number
+): number {
+  if (left === null && right === null) return 0
+  if (left === null) return 1
+  if (right === null) return -1
+  return compare(left, right) * factor
+}
+
+/**
+ * Filtro y orden puros de la biblioteca. Lo desconocido siempre va al final, también cuando
+ * el usuario elige orden ascendente, para no mezclar datos inventados con datos verificados.
+ */
+export function filterAndSortRecordings(
+  items: readonly RecordingFile[],
+  filter: RecordingLibraryFilter,
+  now = Date.now()
+): RecordingFile[] {
+  const query = filter.query.trim().toLocaleLowerCase('es')
+  const dayMs = 86_400_000
+  const startOfToday = new Date(now)
+  startOfToday.setHours(0, 0, 0, 0)
+  const periodStart =
+    filter.period === 'today'
+      ? startOfToday.getTime()
+      : filter.period === '7d'
+        ? now - 7 * dayMs
+        : filter.period === '30d'
+          ? now - 30 * dayMs
+          : null
+
+  const filtered = items.filter((item) => {
+    if (query && !item.name.toLocaleLowerCase('es').includes(query)) return false
+    if (filter.format !== 'all' && item.format !== filter.format) return false
+    if (periodStart !== null && item.createdAt < periodStart) return false
+    return true
+  })
+
+  const factor = filter.direction === 'asc' ? 1 : -1
+  return [...filtered].sort((a, b) => {
+    let comparison: number
+    if (filter.sort === 'name') {
+      comparison = a.name.localeCompare(b.name, 'es', { numeric: true })
+    } else if (filter.sort === 'date') {
+      comparison = a.createdAt - b.createdAt
+    } else if (filter.sort === 'duration') {
+      return compareUnknownLast(a.durationMs, b.durationMs, (x, y) => x - y, factor)
+    } else {
+      comparison = a.size - b.size
+    }
+    return comparison * factor
+  })
+}
 
 /** Elige un MIME type realmente soportado; nunca inventa uno. */
 export function chooseRecorderMimeType(

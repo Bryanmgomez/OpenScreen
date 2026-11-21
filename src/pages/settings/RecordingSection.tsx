@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { FolderOpen, Video } from 'lucide-react'
+import { StorageInfoPanel } from '@/components/recordings/StorageInfoPanel'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -7,6 +9,7 @@ import { SettingRow } from '@/components/ui/SettingRow'
 import { Switch } from '@/components/ui/Switch'
 import { getApi } from '@/services/ipc'
 import { useRecordingStore } from '@/store/recordingStore'
+import { useRecordingsStore } from '@/store/recordingsStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { toMessage } from '@/utils/errors'
 
@@ -14,6 +17,16 @@ import { toMessage } from '@/utils/errors'
 export function RecordingSection() {
   const { settings, update, error } = useSettingsStore()
   const ffmpegAvailable = useRecordingStore((state) => state.ffmpegAvailable)
+  const storage = useRecordingsStore((state) => state.storage)
+  const tempFiles = useRecordingsStore((state) => state.tempFiles)
+  const storageBusy = useRecordingsStore((state) => state.busy)
+  const refreshStorage = useRecordingsStore((state) => state.refresh)
+  const cleanupTemp = useRecordingsStore((state) => state.cleanupTemp)
+  const outputDir = settings?.recording.outputDir ?? null
+
+  useEffect(() => {
+    void refreshStorage()
+  }, [refreshStorage, outputDir])
 
   if (!settings) return null
   const recording = settings.recording
@@ -83,6 +96,13 @@ export function RecordingSection() {
           />
           <span className="field__hint">Tokens: {'{source}'}, {'{date}'}, {'{time}'}, {'{ext}'}</span>
         </div>
+        <StorageInfoPanel
+          storage={storage}
+          tempFiles={tempFiles}
+          busy={storageBusy}
+          onCleanup={() => void cleanupTemp()}
+          showChangeLink={false}
+        />
       </Card>
     </>
   )

@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_AUDIO_SETTINGS, type AudioSupport } from '@shared/audio'
 import type { CaptureSnapshot, SourceRef } from '@shared/capture'
@@ -9,10 +9,15 @@ import type {
   EncodingPlan,
   RecordingFormat
 } from '@shared/encoding'
-import type { RecordingBeginRequest } from '@shared/recording'
+import type { RecordingBeginRequest, RecordingFile } from '@shared/recording'
 import { SettingsService } from '../electron/services/settings/settingsService'
 import { RecordingService, type FfmpegPort } from '../electron/services/recording/recordingService'
-import { metadataPathFor, tempPathFor, type FfmpegArgsOptions } from '../electron/services/recording/model'
+import {
+  audioTrackPathFor,
+  metadataPathFor,
+  tempPathFor,
+  type FfmpegArgsOptions
+} from '../electron/services/recording/model'
 
 const source: SourceRef = {
   id: 'screen:1',
@@ -113,6 +118,7 @@ describe('RecordingService (integración con archivos reales)', () => {
     settings = new SettingsService(join(root, 'settings.json'))
     await settings.load()
     await settings.update({ recording: { outputDir: videos, fileNameTemplate: 'Prueba-{date}-{time}' } })
+    await mkdir(videos, { recursive: true })
     now = new Date(2026, 10, 20, 12, 30, 45).getTime()
   })
 
@@ -129,6 +135,21 @@ describe('RecordingService (integración con archivos reales)', () => {
       now: () => now,
       ffmpeg
     })
+  }
+
+  async function finishOne(service: RecordingService, withAudio = false): Promise<RecordingFile> {
+    const begun = await service.begin(beginRequest())
+    const sessionId = begun.sessionId as string
+    await service.appendChunk({ sessionId, index: 0, data: new Uint8Array([1, 2, 3]) })
+    if (withAudio) {
+      await service.appendAudio({ sessionId, track: 'microphone', index: 0, data: new Uint8Array([9]) })
+    }
+    const finished = await service.finish({
+      sessionId,
+      durationMs: 3000,
+      mimeType: begun.mimeType as string
+    })
+    return finished.lastRecording as RecordingFile
   }
 
   it('escribe chunks en orden, finaliza el contenedor y guarda metadatos reales', async () => {
@@ -178,11 +199,14 @@ describe('RecordingService (integración con archivos reales)', () => {
     expect(await readdir(videos)).toHaveLength(2)
 
     const list = await service.list()
-    expect(list).toHaveLength(1)
-    expect(list[0]?.durationMs).toBe(4321)
+    expect(list.items).toHaveLength(1)
+    expect(list.items[0]?.durationMs).toBe(4321)
+    expect(list.items[0]?.metadataStatus).toBe('ok')
+    expect(list.items[0]?.actualWidth).toBe(1920)
+    expect(list.items[0]?.actualFps).toBe(30)
 
-    await service.delete(list[0]?.path as string)
-    expect(await service.list()).toHaveLength(0)
+    await service.delete(list.items[0]?.path as string)
+    expect((await service.list()).items).toHaveLength(0)
     expect(await readdir(videos)).toHaveLength(0)
   })
 
@@ -299,10 +323,152 @@ describe('RecordingService (integración con archivos reales)', () => {
     expect(files.some((name) => /\.part$/.test(name))).toBe(false)
 
     const list = await service.list()
-    expect(list).toHaveLength(1)
+    expect(list.items).toHaveLength(1)
     const raw: unknown = JSON.parse(
       await readFile(metadataPathFor(finished.lastRecording?.path as string), 'utf8')
     )
     expect(raw).toMatchObject({ durationMs: 2000, tracks: [{ kind: 'microphone' }, { kind: 'system' }] })
+  })
+
+  it('expone metadatos verificados y marca como desconocidos los sidecar ausentes o corruptos', async () => {
+    const service = createService()
+    const file = await finishOne(service)
+    const snapshot = await service.list()
+
+    expect(snapshot.items[0]).toMatchObject({
+      durationMs: 3000,
+      metadataStatus: 'ok',
+      format: 'webm',
+      codec: 'vp9',
+      actualWidth: 1920,
+      actualHeight: 1080,
+      actualFps: 30,
+      measuredFps: 29.8
+    })
+    expect(snapshot.available).toBe(true)
+    expect(snapshot.error).toBeNull()
+
+    await rm(metadataPathFor(file.path))
+    const missing = await service.list()
+    expect(missing.items[0]).toMatchObject({
+      durationMs: null,
+      metadataStatus: 'missing',
+      encoding: null
+    })
+
+    await writeFile(metadataPathFor(file.path), '{ roto', 'utf8')
+    const invalid = await service.list()
+    expect(invalid.items[0]?.metadataStatus).toBe('invalid')
+  })
+
+  it('renombra vídeo, pista y sidecar actualizando las rutas internas', async () => {
+    const service = createService({ isAvailable: async () => false, transcode: async () => undefined })
+    const file = await finishOne(service, true)
+    const oldTrackPath = audioTrackPathFor(file.path, 'microphone')
+    const renamed = await service.rename(file.path, 'Captura final.webm')
+
+    expect(renamed.items).toHaveLength(1)
+    const newPath = renamed.items[0]?.path as string
+    expect(basename(newPath)).toBe('Captura final.webm')
+    expect(renamed.items[0]?.tracks[0]?.path).toBe(audioTrackPathFor(newPath, 'microphone'))
+    expect(await readFile(newPath)).toBeInstanceOf(Buffer)
+    expect(await readFile(audioTrackPathFor(newPath, 'microphone'))).toBeInstanceOf(Buffer)
+
+    const raw: unknown = JSON.parse(await readFile(metadataPathFor(newPath), 'utf8'))
+    expect(raw).toMatchObject({
+      version: 1,
+      tracks: [{ kind: 'microphone', name: 'Captura final.microphone.webm' }]
+    })
+    expect((raw as { tracks: { path: string }[] }).tracks[0]?.path).toBe(
+      audioTrackPathFor(newPath, 'microphone')
+    )
+    await expect(readFile(oldTrackPath)).rejects.toThrow()
+
+    await expect(service.rename(newPath, 'Captura final.webm')).resolves.toBeDefined()
+    const second = await finishOne(service)
+    await expect(service.rename(second.path, 'Captura final.webm')).rejects.toThrow(/Ya existe/)
+  })
+
+  it('limpia solo temporales huérfanos y respeta el temporal de la sesión activa', async () => {
+    const service = createService()
+    const stale = join(videos, 'antigua.webm.part')
+    const staleAudio = join(videos, 'antigua.microphone.webm.part')
+    const personal = join(videos, 'notas.txt')
+    await writeFile(stale, 'basura')
+    await writeFile(staleAudio, 'basura')
+    await writeFile(personal, 'no tocar')
+    const begun = await service.begin(beginRequest())
+
+    const after = await service.cleanupTempFiles()
+    await expect(readFile(stale)).rejects.toThrow()
+    await expect(readFile(staleAudio)).rejects.toThrow()
+    expect(await readFile(personal, 'utf8')).toBe('no tocar')
+    expect(await readFile(begun.tempPath as string)).toBeInstanceOf(Buffer)
+    expect(after.tempFiles).toContain(basename(begun.tempPath as string))
+
+    await service.cancel({ sessionId: begun.sessionId as string })
+  })
+
+  it('comprueba disponibilidad real de la carpeta configurada', async () => {
+    const service = createService()
+    const info = await service.getStorageInfo()
+    expect(info).toMatchObject({
+      outputDir: videos,
+      exists: true,
+      writable: true,
+      available: true,
+      reason: null
+    })
+    expect(info.freeBytes).not.toBeNull()
+
+    await rm(videos, { recursive: true, force: true })
+    const missing = await service.getStorageInfo()
+    expect(missing.available).toBe(false)
+    expect(missing.reason).toMatch(/no existe/)
+
+    const snapshot = await service.list()
+    expect(snapshot.available).toBe(false)
+    expect(snapshot.items).toEqual([])
+  })
+
+  it('entrega URLs privadas solo para grabaciones terminadas dentro de la carpeta', async () => {
+    const service = createService()
+    const file = await finishOne(service)
+    const url = await service.getMediaUrl(file.path)
+    expect(url).toContain('openscreen-media://recording/')
+
+    const outside = resolve(root, 'fuera.webm')
+    await writeFile(outside, 'no tocar')
+    await expect(service.getMediaUrl(outside)).rejects.toThrow(/fuera de la carpeta/)
+    await expect(service.getMediaUrl(metadataPathFor(file.path))).rejects.toThrow(
+      /grabación terminada/
+    )
+  })
+
+  it('no borra archivos arbitrarios aunque el sidecar esté manipulado', async () => {
+    const service = createService()
+    const file = await finishOne(service)
+    const victim = join(videos, 'victima.txt')
+    await writeFile(victim, 'no tocar')
+    await writeFile(
+      metadataPathFor(file.path),
+      JSON.stringify({
+        version: 1,
+        durationMs: 3000,
+        mimeType: 'video/webm',
+        tracks: [
+          {
+            kind: 'microphone',
+            path: victim,
+            name: 'victima.txt',
+            mimeType: 'audio/webm;codecs=opus'
+          }
+        ]
+      }),
+      'utf8'
+    )
+
+    await service.delete(file.path)
+    expect(await readFile(victim, 'utf8')).toBe('no tocar')
   })
 })

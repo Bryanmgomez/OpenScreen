@@ -3,7 +3,7 @@
 Grabador de pantalla de escritorio, moderno y de código abierto, construido con Electron, React, TypeScript y Vite.
 Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 
-> **Estado: Fase 2 completada (Sesión 04).** La aplicación detecta monitores y ventanas reales, permite seleccionar la fuente y grabarla con inicio, pausa, reanudación y parada reales. Los archivos se finalizan en disco y aparecen en la biblioteca. Ver [Hoja de ruta](#hoja-de-ruta).
+> **Estado: Fase 5 completada (Sesión 07).** La aplicación detecta fuentes reales, graba con audio y codificación verificada, y ofrece una biblioteca funcional para encontrar, reproducir y administrar las grabaciones. Ver [Hoja de ruta](#hoja-de-ruta).
 
 ## Qué funciona hoy
 
@@ -15,13 +15,13 @@ Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 - **Selección de fuente** persistida y revalidada: si la ventana o el monitor desaparece, la interfaz lo indica en lugar de grabar otra cosa.
 - **Vista previa real** de la fuente elegida (el mismo `MediaStream` que se usa al grabar).
 - **Grabación real** con `MediaRecorder`: inicio, pausa, reanudación y parada; temporizador que descuenta las pausas e indicador de grabación activa.
-- **Archivos finalizados**: chunks en orden, contenedor WebM nativo o MP4 mediante FFmpeg real, nombres automáticos saneados, temporales `.part` y metadatos de duración.
-- **Biblioteca de grabaciones** conectada a archivos reales: listado, búsqueda, reproducción, revelado y borrado.
+- **Archivos finalizados**: chunks en orden, WebM nativo o MP4/MKV mediante FFmpeg real solo cuando el sondeo y la prueba lo permiten, nombres saneados, temporales `.part` y sidecar `.openscreen.json` con valores reales.
+- **Biblioteca de grabaciones real**: miniaturas de fotogramas decodificados, nombre, fecha, duración, tamaño, resolución y FPS verificados; reproductor integrado, revelado, renombrado, borrado con confirmación, orden, filtros, estado de almacenamiento y limpieza de temporales.
 - Base de región personalizada (guardado de coordenadas; el recorte efectivo sigue pendiente).
 - Seguridad de Electron aplicada (ver [docs/security.md](docs/security.md)).
 - Pruebas automáticas de ajustes, persistencia, seguridad, mapeo de fuentes, modelo de grabación y servicio de grabación con archivos reales.
 
-Lo que **no** existe todavía (y está marcado como tal en la propia interfaz): audio, recorte de región, aceleración por hardware y atajos globales.
+Lo que **no** existe todavía (y se indica en la interfaz): recorte efectivo de región, atajos globales y distribución. La aceleración por hardware y los formatos MP4/MKV solo se ofrecen si FFmpeg y la combinación elegida pasan una prueba real; FFmpeg no se distribuye con la aplicación. El audio automático del sistema está verificado solo en Windows; macOS/Linux requieren un dispositivo virtual elegido por el usuario.
 
 ## Requisitos
 
@@ -78,18 +78,19 @@ Se añadió `shared/` respecto a la propuesta inicial: main, preload y renderer 
 | --- | --- | --- |
 | 1 | Fundación: proyecto, IPC, seguridad, interfaz base | ✅ Completada |
 | 2 | Captura: monitores, ventanas, región, vista previa, grabación básica | ✅ Completada |
-| 3 | Audio: micrófono, audio del sistema, dispositivos, pistas | Siguiente |
-| 4 | Codificación: FFmpeg, formatos, calidad, aceleración por hardware | Planificada |
-| 5 | Gestión: biblioteca, reproducción, historial, ajustes completos | Planificada |
-| 6 | Distribución: instaladores, GitHub Releases, pruebas multiplataforma | Planificada |
+| 3 | Audio: micrófono, audio del sistema, dispositivos, pistas | ✅ Completada (Sesión 05) |
+| 4 | Codificación: FFmpeg, formatos, calidad, aceleración por hardware | ✅ Completada con capacidades verificadas (Sesión 06) |
+| 5 | Gestión: biblioteca, reproducción, historial, ajustes completos | ✅ Completada (Sesión 07) |
+| 6 | Distribución: instaladores, GitHub Releases, pruebas multiplataforma | Siguiente |
 
 ## Estado de las pruebas
 
-- Pruebas unitarias y de integración (`npm test`, 49 pruebas) y comprobación de tipos: pasan.
-- Compilación de producción (`npm run build`): funciona.
-- **Prueba real de grabación (Sesión 04, Windows):** se arrancó la app compilada con Electron 45, se seleccionó un monitor real, se grabó con pausa/reanudación y se obtuvo un WebM válido (cabecera EBML `1a45dfa3`, ~3,1 MB, 5,29 s activos) en la carpeta configurada. La biblioteca lo listó con su duración real.
-- La detección de fuentes y el permiso `display-capture` se probaron en esa misma ejecución real. Las limitaciones de cada plataforma están documentadas en `electron/services/capture/README.md`.
-- Linux y macOS: no son objetivo de la primera versión; la arquitectura no lo impide.
+- Pruebas unitarias y de integración (`npm test`, **80 pruebas en 13 archivos**), comprobación de tipos y compilación de producción: pasan.
+- **Prueba real de grabación (Sesión 04, Windows):** se arrancó la app compilada con Electron 45, se seleccionó un monitor real, se grabó con pausa/reanudación y se obtuvo un WebM válido (cabecera EBML `1a45dfa3`) en la carpeta configurada.
+- **Prueba real de audio (Sesión 05):** se capturaron micrófono y loopback del sistema con pistas Opus independientes y se decodificaron; el tono de 440 Hz se registró con RMS 0,081.
+- **Prueba real de codificación (Sesión 06):** WebM VP9 1280×720, 24 fps aplicados y 23,7 fps medidos; un plan a 60 fps informó 39,6 fps medidos y la interfaz lo mostró como diferencia, no como logro.
+- **Prueba real de biblioteca (Sesión 07):** el artefacto WebM anterior (792.611 bytes, 3,19 s) se lista con metadataStatus `ok`, resolución y cadencia del sidecar; la URL privada se valida en main. Si el archivo no está en la máquina, esa prueba se omite.
+- FFmpeg/ffprobe no están instalados en el entorno de desarrollo: MP4/MKV, H.265, AV1 y aceleración por GPU permanecen deshabilitados y no se presentan como compatibles. Linux y macOS no se afirman como plataformas verificadas.
 
 ## Contribuir
 

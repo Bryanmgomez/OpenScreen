@@ -7,11 +7,17 @@ import { FfmpegService } from '../services/recording/ffmpegService'
 import { RecordingService } from '../services/recording/recordingService'
 import { SettingsService } from '../services/settings/settingsService'
 import { registerIpcHandlers } from './ipc'
+import {
+  registerRecordingMediaProtocol,
+  registerRecordingMediaScheme
+} from './mediaProtocol'
 import { applySessionSecurity, applyWebContentsHardening } from './security/session'
 import { createMainWindow } from './window'
 
-// Debe fijarse antes de `ready`: determina la carpeta de datos del usuario (userData).
+// Debe fijarse antes de `ready`: determina la carpeta de datos del usuario (userData)
+// y registra el esquema privado usado por el reproductor y las miniaturas.
 app.setName('OpenScreen')
+registerRecordingMediaScheme()
 
 // Una sola instancia: evita ventanas duplicadas y grabaciones simultáneas accidentales.
 if (!app.requestSingleInstanceLock()) {
@@ -57,6 +63,7 @@ if (!app.requestSingleInstanceLock()) {
         }
       })
       registerIpcHandlers({ settings, audio: audioService, capture, recording })
+      registerRecordingMediaProtocol(() => recording.getOutputDir())
       capture.startWatching()
       app.on('before-quit', (event) => {
         if (quitting) return

@@ -11,12 +11,17 @@ import {
   canStart,
   isAudioTrackFileName,
   isFinalRecordingFile,
+  isManagedTempFileName,
   isPathInside,
+  mediaUrlFor,
   metadataPathFor,
   normalizeExtension,
+  normalizedRecordingName,
+  pathFromMediaUrl,
   resolveOutputDir,
   safeFilePart,
   tempPathFor,
+  validateRecordingName,
   withUniqueSuffix
 } from '../electron/services/recording/model'
 import {
@@ -176,5 +181,29 @@ describe('modelo de grabación', () => {
     expect(audioTempPathFor('a.mp4', 'system')).toBe('a.system.webm.part')
     expect(tempPathFor('a.webm')).toBe('a.webm.part')
     expect(metadataPathFor('a.webm')).toBe('a.webm.openscreen.json')
+  })
+
+  it('clasifica solo los temporales gestionados y valida nombres de renombrado', () => {
+    expect(isManagedTempFileName('a.webm.part')).toBe(true)
+    expect(isManagedTempFileName('a.webm.ffmpeg.part')).toBe(true)
+    expect(isManagedTempFileName('a.microphone.webm.part')).toBe(true)
+    expect(isManagedTempFileName('apunte.txt')).toBe(false)
+    expect(isManagedTempFileName('a.webm')).toBe(false)
+
+    expect(validateRecordingName('Nueva captura.webm', 'webm')).toBeNull()
+    expect(validateRecordingName('../fuera.webm', 'webm')).toMatch(/separadores/)
+    expect(validateRecordingName('captura.mp4', 'webm')).toMatch(/extensión/)
+    expect(validateRecordingName('CON.webm', 'webm')).toMatch(/reservado/)
+    expect(normalizedRecordingName('  Informe: final  .webm')).toBe('Informe- final.webm')
+  })
+
+  it('codifica y valida la URL privada de reproducción sin mezclar esquemas', () => {
+    const path = 'D:\\Video\\OpenScreen-2026.webm'
+    const url = mediaUrlFor(path)
+    expect(url.startsWith('openscreen-media://recording/')).toBe(true)
+    expect(pathFromMediaUrl(url)).toBe(path)
+    expect(pathFromMediaUrl('file:///C:/secret.webm')).toBeNull()
+    expect(pathFromMediaUrl('openscreen-media://otro/C%3A%5Csecret.webm')).toBeNull()
+    expect(pathFromMediaUrl('openscreen-media://recording/C%3A%5Csecret.webm?x=1')).toBeNull()
   })
 })

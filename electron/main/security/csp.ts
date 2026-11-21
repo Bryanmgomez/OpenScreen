@@ -16,7 +16,8 @@ export function buildCsp({ dev }: CspOptions): string {
     // React usa atributos style en línea; se permite solo para estilos.
     'style-src': ["'self'", "'unsafe-inline'"],
     'img-src': ["'self'", 'data:', 'blob:'],
-    'media-src': ["'self'", 'blob:'],
+    // Esquema privado y validado en main para reproducir grabaciones y crear miniaturas.
+    'media-src': ["'self'", 'blob:', 'openscreen-media:'],
     'font-src': ["'self'", 'data:'],
     'connect-src': dev ? ["'self'", 'ws:', 'http:'] : ["'self'"],
     'object-src': ["'none'"],

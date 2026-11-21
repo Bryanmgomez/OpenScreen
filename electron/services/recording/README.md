@@ -1,6 +1,6 @@
 # services/recording
 
-**Estado: implementado (Sesión 04), con codificación verificada en la Sesión 06.**
+**Estado: implementado (Sesión 04), con audio (Sesión 05), codificación verificada (Sesión 06) y biblioteca completa (Sesión 07).**
 
 Responsabilidad: máquina de estados de la grabación, prevención de grabaciones duplicadas,
 control de archivos temporales, finalización del contenedor y recuperación ante interrupciones.
@@ -26,6 +26,23 @@ control de archivos temporales, finalización del contenedor y recuperación ant
 - Finalización: `rename()` atómico al nombre definitivo; si falla, se limpia y el estado pasa a `error`.
 - Metadatos: `<nombre>.openscreen.json` con duración, MIME type, pistas y `EncodingPlan` aplicado.
 
+## Biblioteca (Sesión 07)
+
+- `list()` devuelve un `RecordingLibrarySnapshot` con los archivos terminados, el estado real de la
+  carpeta, los temporales huérfanos y un posible error. `delete()`, `rename()` y
+  `cleanupTempFiles()` devuelven el mismo tipo para que la interfaz nunca quede desincronizada.
+- El sidecar `.openscreen.json` se valida con Zod (`RECORDING_METADATA_VERSION = 1`). La `version`
+  es opcional para leer grabaciones antiguas y los campos desconocidos se conservan al renombrar.
+  Lo que no se pudo verificar viaja como `null` y `metadataStatus` lo etiqueta.
+- `rename()` valida el nombre en main y en renderer, comprueba colisiones antes de tocar el disco,
+  mueve vídeo, pistas y sidecar y revierte todo si falla. `delete()` exige confirmación del nombre
+  exacto en la interfaz y solo borra pistas en rutas canónicas.
+- `main/mediaProtocol.ts` sirve los bytes con `openscreen-media://` y rangos HTTP. Valida host,
+  contención de ruta y extensión; incluye CORS solo para que el `<canvas>` pueda capturar un
+  fotograma real. La CSP incluye el esquema únicamente en `media-src`.
+- `filterAndSortRecordings()` filtra y ordena sin inventar valores; `src/services/thumbnailService.ts`
+  decodifica el vídeo en el navegador y cachea la miniatura por ruta.
+
 ## Decisiones
 
 - WebM nativo es el formato por defecto: no requiere binarios externos y se elige solo si el
@@ -43,7 +60,11 @@ control de archivos temporales, finalización del contenedor y recuperación ant
 
 - `tests/recordingModel.test.ts`: naming, rutas, MIME types, bitrates y argumentos de FFmpeg.
 - `tests/recordingService.test.ts`: integración con archivos reales en `tmpdir`: chunks ordenados,
-  duplicados, pausas, cancelación, MP4 con FFmpeg simulado, `dispose()` y contención de rutas.
+  duplicados, pausas, cancelación, MP4 con FFmpeg simulado, `dispose()`, contención de rutas,
+  metadatos Zod, renombrado con pistas, limpieza de temporales y borrado seguro.
+- `tests/recordingLibrary.test.ts`: filtros y orden puros, con valores desconocidos al final.
+- `tests/realRecordingValidation.test.ts`: validación del artefacto WebM real de la Sesión 06
+  (se omite si el archivo no existe en la máquina).
 - `tests/encodingModel.test.ts` y `tests/encodingProbe.test.ts`: degradación honesta de
   resolución/FPS, planes verificados, parseo de la salida real de FFmpeg y rechazo de encoders
   que no pasan la prueba.

@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Circle, Film, History, Mic, Monitor } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { VideoPlayerModal } from '@/components/recordings/VideoPlayerModal'
 import { Logo } from '@/components/brand/Logo'
 import { Panel } from '@/components/ui/Panel'
 import { SettingRow } from '@/components/ui/SettingRow'
@@ -9,9 +11,17 @@ import { RecordingCard } from '@/components/recordings/RecordingCard'
 import { useSettingsStore } from '@/store/settingsStore'
 
 export function HomePage() {
-  const { items } = useRecordings()
+  const { items, getMediaUrl } = useRecordings()
   const settings = useSettingsStore((state) => state.settings)
   const recent = items.slice(0, 3)
+  const [player, setPlayer] = useState<{ recording: (typeof items)[number]; src: string } | null>(null)
+
+  const play = async (path: string): Promise<void> => {
+    const recording = items.find((item) => item.path === path)
+    if (!recording) return
+    const src = await getMediaUrl(path)
+    if (src) setPlayer({ recording, src })
+  }
 
   return (
     <div className="page">
@@ -80,7 +90,11 @@ export function HomePage() {
         {recent.length > 0 ? (
           <div className="rec-grid">
             {recent.map((recording) => (
-              <RecordingCard key={recording.id} recording={recording} />
+              <RecordingCard
+                key={recording.id}
+                recording={recording}
+                onPlay={(path) => void play(path)}
+              />
             ))}
           </div>
         ) : (
@@ -89,6 +103,11 @@ export function HomePage() {
           </p>
         )}
       </Panel>
+      <VideoPlayerModal
+        recording={player?.recording ?? null}
+        src={player?.src ?? null}
+        onClose={() => setPlayer(null)}
+      />
     </div>
   )
 }

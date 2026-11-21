@@ -15,9 +15,21 @@ import type { RecordingItem } from '@/types/recording'
 /** Solo para ver el diseño: estos datos NO son grabaciones reales y la ruta solo existe en desarrollo. */
 const SAMPLE: RecordingItem = {
   id: 'sample',
+  path: 'sample',
   name: 'Ejemplo de tarjeta',
+  size: 12_582_912,
+  mimeType: 'video/webm;codecs=vp9',
+  format: 'webm',
   durationMs: 754000,
-  createdAt: '2026-11-20T14:05:00'
+  createdAt: '2026-11-20T14:05:00',
+  tracks: [],
+  metadataStatus: 'ok',
+  codec: 'vp9',
+  actualWidth: 1280,
+  actualHeight: 720,
+  actualFps: 30,
+  measuredFps: 29.8,
+  encoding: null
 }
 
 export function DesignGalleryPage() {

@@ -1,72 +1,167 @@
 import { useMemo, useState } from 'react'
-import { Grid2x2, Library, RefreshCw, Search } from 'lucide-react'
+import { ArrowDownUp, Filter, Library, RefreshCw, Search } from 'lucide-react'
+import {
+  filterAndSortRecordings,
+  type RecordingFormat,
+  type RecordingPeriod,
+  type RecordingSort
+} from '@shared/recording'
 import { RecordingCard } from '@/components/recordings/RecordingCard'
+import { DeleteDialog, RenameDialog } from '@/components/recordings/RecordingDialogs'
+import { StorageInfoPanel } from '@/components/recordings/StorageInfoPanel'
+import { VideoPlayerModal } from '@/components/recordings/VideoPlayerModal'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { Select } from '@/components/ui/Select'
 import { useRecordings } from '@/hooks/useRecordings'
-import { useRecordingsStore } from '@/store/recordingsStore'
-
-type Sort = 'date' | 'name' | 'duration'
 
 export function LibraryPage() {
-  const { items, error, busy, reveal, open, remove } = useRecordings()
-  const refresh = useRecordingsStore((state) => state.refresh)
-  const [query, setQuery] = useState('')
-  const [sort, setSort] = useState<Sort>('date')
+  const {
+    items,
+    files,
+    thumbnails,
+    storage,
+    tempFiles,
+    available,
+    error,
+    busy,
+    refresh,
+    reveal,
+    remove,
+    rename,
+    cleanupTemp,
+    getMediaUrl
+  } = useRecordings()
 
-  const visible = useMemo(() => {
-    const filtered = items.filter((item) =>
-      item.name.toLowerCase().includes(query.trim().toLowerCase())
-    )
-    return [...filtered].sort((a, b) => {
-      if (sort === 'name') return a.name.localeCompare(b.name, 'es')
-      if (sort === 'duration') return b.durationMs - a.durationMs
-      return b.createdAt.localeCompare(a.createdAt)
-    })
-  }, [items, query, sort])
+  const [query, setQuery] = useState('')
+  const [format, setFormat] = useState<RecordingFormat | 'all'>('all')
+  const [period, setPeriod] = useState<RecordingPeriod>('all')
+  const [sort, setSort] = useState<RecordingSort>('date')
+  const [direction, setDirection] = useState<'asc' | 'desc'>('desc')
+  const [renameTarget, setRenameTarget] = useState<(typeof items)[number] | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<(typeof items)[number] | null>(null)
+  const [player, setPlayer] = useState<{ recording: (typeof items)[number]; src: string } | null>(null)
+
+  const visibleFiles = useMemo(
+    () => filterAndSortRecordings(files, { query, format, period, sort, direction }),
+    [files, query, format, period, sort, direction]
+  )
+  const visible = useMemo(
+    () =>
+      visibleFiles.map((file) => ({
+        ...file,
+        id: file.path,
+        path: file.path,
+        createdAt: new Date(file.createdAt).toISOString(),
+        thumbnailUrl: thumbnails[file.path]
+      })),
+    [visibleFiles, thumbnails]
+  )
+
+  const findItem = (path: string): (typeof items)[number] | undefined =>
+    items.find((item) => item.path === path)
+
+  const play = async (path: string): Promise<void> => {
+    const recording = findItem(path)
+    if (!recording) return
+    const src = await getMediaUrl(path)
+    if (src) setPlayer({ recording, src })
+  }
 
   return (
     <div className="page">
       <header className="page__header">
         <div>
           <h1>Grabaciones</h1>
-          <p>Archivos reales guardados en la carpeta de destino configurada.</p>
+          <p>
+            Biblioteca real de vídeos guardados. Ordena, filtra y administra tus grabaciones.
+          </p>
         </div>
-        <Button icon={<RefreshCw size={14} />} onClick={() => void refresh()} disabled={busy}>
-          Actualizar
-        </Button>
+        <div className="row">
+          <span className="badge badge--accent">{files.length} grabaciones</span>
+          <Button icon={<RefreshCw size={14} />} onClick={() => void refresh()} disabled={busy}>
+            Actualizar
+          </Button>
+        </div>
       </header>
 
-      <div className="toolbar">
+      <StorageInfoPanel
+        storage={storage}
+        tempFiles={tempFiles}
+        busy={busy}
+        onCleanup={() => void cleanupTemp()}
+      />
+
+      <div className="toolbar toolbar--library">
         <label className="search">
           <Search size={15} aria-hidden="true" />
           <input
             type="search"
-            placeholder="Buscar grabaciones"
+            placeholder="Buscar por nombre de archivo"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Buscar grabaciones"
           />
         </label>
         <Select
+          label="Formato"
+          hideLabel
+          placeholder="Formato"
+          value={format}
+          onChange={(value) => setFormat(value as RecordingFormat | 'all')}
+          options={[
+            { value: 'all', label: 'Todos los formatos' },
+            { value: 'webm', label: 'WebM' },
+            { value: 'mp4', label: 'MP4' },
+            { value: 'mkv', label: 'MKV' }
+          ]}
+        />
+        <Select
+          label="Fecha"
+          hideLabel
+          placeholder="Fecha"
+          value={period}
+          onChange={(value) => setPeriod(value as RecordingPeriod)}
+          options={[
+            { value: 'all', label: 'Cualquier fecha' },
+            { value: 'today', label: 'Hoy' },
+            { value: '7d', label: 'Últimos 7 días' },
+            { value: '30d', label: 'Últimos 30 días' }
+          ]}
+        />
+        <Select
           label="Ordenar"
           hideLabel
           placeholder="Ordenar por"
           value={sort}
-          onChange={(value) => setSort(value as Sort)}
+          onChange={(value) => setSort(value as RecordingSort)}
           options={[
             { value: 'date', label: 'Fecha' },
             { value: 'name', label: 'Nombre' },
-            { value: 'duration', label: 'Duración' }
+            { value: 'duration', label: 'Duración' },
+            { value: 'size', label: 'Tamaño' }
+          ]}
+        />
+        <SegmentedControl
+          label="Dirección del orden"
+          value={direction}
+          onChange={setDirection}
+          options={[
+            { value: 'desc', label: '↓' },
+            { value: 'asc', label: '↑' }
           ]}
         />
         <span className="toolbar__view" aria-hidden="true">
-          <Grid2x2 size={16} />
+          <ArrowDownUp size={16} />
         </span>
       </div>
 
-      {error && <p className="notice notice--error">{error}</p>}
+      {(error || !available) && (
+        <p className="notice notice--error">
+          {error ?? 'La carpeta de grabaciones no está disponible.'}
+        </p>
+      )}
 
       {visible.length > 0 ? (
         <div className="rec-grid">
@@ -74,19 +169,48 @@ export function LibraryPage() {
             <RecordingCard
               key={recording.id}
               recording={recording}
-              onPlay={(path) => void open(path)}
+              onPlay={(path) => void play(path)}
               onReveal={(path) => void reveal(path)}
-              onDelete={(path) => void remove(path)}
+              onRename={(path) => {
+                const item = findItem(path)
+                if (item) setRenameTarget(item)
+              }}
+              onDelete={(path) => {
+                const item = findItem(path)
+                if (item) setDeleteTarget(item)
+              }}
             />
           ))}
         </div>
       ) : (
         <EmptyState
-          icon={<Library size={26} />}
-          title="Aún no hay grabaciones"
-          description="Detén una grabación para que aparezca aquí. También puedes pulsar «Actualizar» si la carpeta cambió fuera de la aplicación."
+          icon={files.length === 0 ? <Library size={26} /> : <Filter size={26} />}
+          title={files.length === 0 ? 'Aún no hay grabaciones' : 'Sin resultados'}
+          description={
+            files.length === 0
+              ? 'Detén una grabación para que aparezca aquí. También puedes pulsar «Actualizar» si la carpeta cambió fuera de la aplicación.'
+              : 'Prueba con otro texto, formato o rango de fechas.'
+          }
         />
       )}
+
+      <RenameDialog
+        recording={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onConfirm={(name) => rename(renameTarget?.path ?? '', name)}
+      />
+      <DeleteDialog
+        recording={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (deleteTarget) await remove(deleteTarget.path)
+        }}
+      />
+      <VideoPlayerModal
+        recording={player?.recording ?? null}
+        src={player?.src ?? null}
+        onClose={() => setPlayer(null)}
+      />
     </div>
   )
 }

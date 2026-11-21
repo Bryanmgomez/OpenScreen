@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { constants as fsConstants } from 'node:fs'
 import {
+  access,
   mkdir,
   open,
   readFile,
@@ -7,11 +9,12 @@ import {
   rename,
   rm,
   stat,
+  statfs,
   unlink,
   writeFile,
   type FileHandle
 } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { basename, extname, resolve } from 'node:path'
 import {
   assertEncodingPlan,
   EMPTY_ENCODING_CAPABILITIES,
@@ -33,13 +36,19 @@ import type {
   RecordingFile,
   RecordingFinishRequest,
   RecordingFormat,
-  RecordingList,
+  RecordingLibrarySnapshot,
+  RecordingMetadataStatus,
   RecordingSessionRequest,
-  RecordingStatus
+  RecordingStatus,
+  RecordingStorageInfo
 } from '../../../shared/recording'
 import {
   EMPTY_RECORDING_AUDIO_STATUS,
-  type RecordingAudioStatus
+  RECORDING_METADATA_VERSION,
+  recordingFormatForName,
+  recordingMetadataSchema,
+  type RecordingAudioStatus,
+  type RecordingMetadata
 } from '../../../shared/recording'
 import type { SettingsService } from '../settings/settingsService'
 import {
@@ -52,11 +61,16 @@ import {
   canStart,
   type FfmpegArgsOptions,
   isFinalRecordingFile,
+  isManagedTempFileName,
   isPathInside,
+  mediaUrlFor,
   metadataPathFor,
+  mimeTypeForRecordingName,
   normalizeExtension,
+  normalizedRecordingName,
   resolveOutputDir,
   tempPathFor,
+  validateRecordingName,
   withUniqueSuffix
 } from './model'
 
@@ -116,11 +130,15 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Error desconocido al grabar.'
 }
 
-function mimeTypeForFile(name: string): string {
-  const lower = name.toLowerCase()
-  if (lower.endsWith('.mp4')) return 'video/mp4'
-  if (lower.endsWith('.mkv')) return 'video/x-matroska'
-  return 'video/webm'
+interface ParsedMetadata {
+  status: RecordingMetadataStatus
+  durationMs: number | null
+  mimeType: string | null
+  tracks: AudioTrackFile[]
+  encoding: EncodingPlan | null
+  raw: RecordingMetadata | null
+  /** Texto original, para restaurarlo byte a byte si un renombrado se interrumpe. */
+  rawText: string | null
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -460,57 +478,300 @@ export class RecordingService {
     this.emit()
   }
 
-  async list(): Promise<RecordingList> {
+  async list(): Promise<RecordingLibrarySnapshot> {
+    const storage = await this.getStorageInfo()
+    const dir = this.getOutputDir()
     let entries
     try {
-      entries = await readdir(this.getOutputDir(), { withFileTypes: true })
-    } catch {
-      return []
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch (error) {
+      return this.makeSnapshot([], storage, messageOf(error), [])
     }
 
     const files: RecordingFile[] = []
+    const tempFiles: string[] = []
     for (const entry of entries) {
-      if (!entry.isFile() || !isFinalRecordingFile(entry.name)) continue
-      const path = resolve(this.getOutputDir(), entry.name)
+      if (!entry.isFile()) continue
+      if (isManagedTempFileName(entry.name)) {
+        tempFiles.push(entry.name)
+        continue
+      }
+      if (!isFinalRecordingFile(entry.name)) continue
       try {
-        const info = await stat(path)
-        files.push({
-          path,
-          name: entry.name,
-          size: info.size,
-          mimeType: mimeTypeForFile(entry.name),
-          durationMs: await this.readDuration(path),
-          createdAt: info.mtimeMs,
-          tracks: await this.readTracks(path)
-        })
+        files.push(await this.toRecordingFile(resolve(dir, entry.name), entry.name))
       } catch {
         // El archivo pudo borrarse mientras se enumeraba; se ignora.
       }
     }
-    return files.sort((a, b) => b.createdAt - a.createdAt)
+    return this.makeSnapshot(
+      files.sort((a, b) => b.createdAt - a.createdAt),
+      storage,
+      null,
+      tempFiles.sort((a, b) => a.localeCompare(b, 'es'))
+    )
+  }
+
+  /** Comprueba existencia, permisos y espacio real de la carpeta configurada. */
+  async getStorageInfo(): Promise<RecordingStorageInfo> {
+    const outputDir = this.getOutputDir()
+    let existsDir = false
+    let writable = false
+    let reason: string | null = null
+
+    try {
+      const info = await stat(outputDir)
+      if (info.isDirectory()) existsDir = true
+      else reason = 'La ruta configurada no es una carpeta.'
+    } catch {
+      reason = 'La carpeta de grabaciones no existe todavía.'
+    }
+
+    if (existsDir) {
+      try {
+        await access(outputDir, fsConstants.W_OK)
+        writable = true
+      } catch {
+        reason = 'La carpeta de grabaciones no tiene permisos de escritura.'
+      }
+    }
+
+    if (writable) {
+      // Sondeo real: permisos y escritura efectiva pueden divergir (unidades de solo lectura,
+      // ACLs, discos compartidos). El archivo se crea y se borra inmediatamente.
+      const probe = resolve(outputDir, `.openscreen-write-${randomUUID()}.tmp`)
+      try {
+        const handle = await open(probe, 'wx')
+        await handle.close()
+        await unlink(probe)
+      } catch (error) {
+        writable = false
+        reason = `No se pudo escribir en la carpeta: ${messageOf(error)}`
+      }
+    }
+
+    let freeBytes: number | null = null
+    if (existsDir) {
+      try {
+        const info = await statfs(outputDir)
+        freeBytes = Math.max(0, Number(info.bavail) * Number(info.bsize))
+      } catch {
+        // El espacio libre es informativo; su ausencia no invalida la carpeta.
+      }
+    }
+
+    const available = existsDir && writable
+    return {
+      outputDir,
+      exists: existsDir,
+      writable,
+      available,
+      freeBytes,
+      reason: available ? null : (reason ?? 'La carpeta de grabaciones no está disponible.')
+    }
   }
 
   async reveal(path: string): Promise<void> {
-    const target = this.safePath(path)
+    const target = this.assertRecordingPath(path)
     if (!(await exists(target))) throw new Error('El archivo ya no existe.')
     this.revealFile(target)
   }
 
   async open(path: string): Promise<void> {
-    const target = this.safePath(path)
+    const target = this.assertRecordingPath(path)
     if (!(await exists(target))) throw new Error('El archivo ya no existe.')
     this.openFile(target)
   }
 
-  async delete(path: string): Promise<RecordingList> {
-    const target = this.safePath(path)
-    const metadata = await this.readTracks(target)
-    await unlink(target)
-    for (const track of metadata) {
-      await rm(track.path, { force: true }).catch(() => undefined)
+  async delete(path: string): Promise<RecordingLibrarySnapshot> {
+    const target = this.assertRecordingPath(path)
+    const metadata = await this.readMetadata(target)
+    const removable = new Set<string>([metadataPathFor(target)])
+    for (const kind of AUDIO_TRACKS) removable.add(audioTrackPathFor(target, kind))
+    // Los paths del sidecar solo se respetan si son exactamente los esperados para este vídeo:
+    // un sidecar editado a mano no puede convertir un borrado en borrado de otro archivo.
+    for (const track of metadata.tracks) {
+      if (AUDIO_TRACKS.includes(track.kind)) removable.add(audioTrackPathFor(target, track.kind))
     }
-    await rm(metadataPathFor(target), { force: true })
+
+    await unlink(target)
+    for (const pathToRemove of removable) {
+      await rm(pathToRemove, { force: true }).catch(() => undefined)
+    }
     return this.list()
+  }
+
+  /** Renombra vídeo, pistas y sidecar. Rechaza colisiones antes de tocar cualquier archivo. */
+  async rename(path: string, name: string): Promise<RecordingLibrarySnapshot> {
+    const target = this.assertRecordingPath(path)
+    if (!(await exists(target))) throw new Error('El archivo ya no existe.')
+    const problem = validateRecordingName(name, extname(target))
+    if (problem) throw new Error(problem)
+
+    const newName = normalizedRecordingName(name)
+    const newTarget = resolve(this.getOutputDir(), newName)
+    if (resolve(target) === resolve(newTarget)) return this.list()
+
+    const metadata = await this.readMetadata(target)
+    const trackMoves = AUDIO_TRACKS.map((kind) => ({
+      kind,
+      from: audioTrackPathFor(target, kind),
+      to: audioTrackPathFor(newTarget, kind)
+    }))
+    const oldMetadataPath = metadataPathFor(target)
+    const newMetadataPath = metadataPathFor(newTarget)
+    const collisions = [
+      newTarget,
+      tempPathFor(newTarget),
+      `${newTarget}.ffmpeg.part`,
+      newMetadataPath,
+      ...trackMoves.flatMap((move) => [move.to, `${move.to}.part`])
+    ]
+    for (const candidate of collisions) {
+      if (candidate !== target && (await exists(candidate))) {
+        throw new Error(`Ya existe un archivo con el nombre «${basename(candidate)}».`)
+      }
+    }
+
+    const updatedMetadata: RecordingMetadata = {
+      ...(metadata.raw ?? {}),
+      version: RECORDING_METADATA_VERSION,
+      durationMs: metadata.durationMs,
+      mimeType: metadata.mimeType ?? mimeTypeForRecordingName(newName),
+      encoding: metadata.encoding,
+      tracks: []
+    }
+
+    const moved: { from: string; to: string }[] = []
+    let metadataMoved = false
+    let metadataCreated = false
+    try {
+      for (const move of trackMoves) {
+        if (!(await exists(move.from))) continue
+        await rename(move.from, move.to)
+        moved.push({ from: move.from, to: move.to })
+        const previous = metadata.tracks.find((track) => track.kind === move.kind)
+        ;(updatedMetadata.tracks as AudioTrackFile[]).push({
+          kind: move.kind,
+          path: move.to,
+          name: basename(move.to),
+          mimeType: previous?.mimeType ?? 'audio/webm;codecs=opus'
+        })
+      }
+
+      if (await exists(oldMetadataPath)) {
+        await rename(oldMetadataPath, newMetadataPath)
+        metadataMoved = true
+      } else {
+        metadataCreated = true
+      }
+      await writeFile(newMetadataPath, JSON.stringify(updatedMetadata), 'utf8')
+      await rename(target, newTarget)
+    } catch (error) {
+      if (metadataMoved) {
+        // La copia nueva puede estar a medias: se elimina y se restaura el original exacto.
+        await rm(newMetadataPath, { force: true }).catch(() => undefined)
+        if (metadata.rawText !== null) {
+          await writeFile(oldMetadataPath, metadata.rawText, 'utf8').catch(() => undefined)
+        }
+      } else if (metadataCreated) {
+        await rm(newMetadataPath, { force: true }).catch(() => undefined)
+      }
+      for (const item of moved.reverse()) {
+        await rename(item.to, item.from).catch(() => undefined)
+      }
+      throw error
+    }
+
+    return this.list()
+  }
+
+  /** Elimina temporales huérfanos de un cierre brusco, nunca los de la sesión en curso. */
+  async cleanupTempFiles(): Promise<RecordingLibrarySnapshot> {
+    const active = new Set(
+      [
+        this.status.tempPath,
+        this.transcodePath,
+        ...AUDIO_TRACKS.map((kind) => this.audioTemps[kind])
+      ]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => resolve(value))
+    )
+    const dir = this.getOutputDir()
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch (error) {
+      return this.makeSnapshot([], await this.getStorageInfo(), messageOf(error), [])
+    }
+
+    const stale = entries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          isManagedTempFileName(entry.name) &&
+          !active.has(resolve(dir, entry.name))
+      )
+      .map((entry) => entry.name)
+    for (const name of stale) {
+      await rm(resolve(dir, name), { force: true }).catch(() => undefined)
+    }
+    return this.list()
+  }
+
+  /** URL válida solo para un vídeo terminado dentro de la carpeta configurada. */
+  async getMediaUrl(path: string): Promise<string> {
+    const target = this.assertRecordingPath(path)
+    if (!(await exists(target))) throw new Error('El archivo ya no existe.')
+    return mediaUrlFor(target)
+  }
+
+  private makeSnapshot(
+    items: RecordingFile[],
+    storage: RecordingStorageInfo,
+    error: string | null,
+    tempFiles: string[]
+  ): RecordingLibrarySnapshot {
+    const finalError = error ?? storage.reason
+    return {
+      items,
+      outputDir: storage.outputDir,
+      available: storage.available && finalError === null,
+      error: finalError,
+      tempFiles,
+      storage,
+      generatedAt: this.now()
+    }
+  }
+
+  private async toRecordingFile(path: string, name: string): Promise<RecordingFile> {
+    const info = await stat(path)
+    const metadata = await this.readMetadata(path)
+    const plan = metadata.encoding
+    return {
+      path,
+      name,
+      size: info.size,
+      mimeType: metadata.mimeType ?? mimeTypeForRecordingName(name),
+      format: recordingFormatForName(name),
+      durationMs: metadata.durationMs,
+      createdAt: info.mtimeMs,
+      tracks: metadata.tracks,
+      metadataStatus: metadata.status,
+      codec: plan?.codec ?? null,
+      actualWidth: plan?.actualWidth ?? null,
+      actualHeight: plan?.actualHeight ?? null,
+      actualFps: plan?.actualFps ?? null,
+      measuredFps: plan?.measuredFps ?? null,
+      encoding: plan
+    }
+  }
+
+  private assertRecordingPath(path: string): string {
+    const target = this.safePath(path)
+    if (!isFinalRecordingFile(basename(target))) {
+      throw new Error('La ruta no corresponde a una grabación terminada.')
+    }
+    return target
   }
 
   private assertSession(sessionId: string): void {
@@ -528,20 +789,35 @@ export class RecordingService {
     const info = await stat(finalPath)
     const mimeType = this.currentFormat === 'webm'
       ? (this.status.mimeType ?? 'video/webm')
-      : mimeTypeForFile(finalPath)
+      : mimeTypeForRecordingName(finalPath)
+    const plan = this.currentPlan
     await writeFile(
       metadataPathFor(finalPath),
-      JSON.stringify({ durationMs, mimeType, tracks, encoding: this.currentPlan }),
+      JSON.stringify({
+        version: RECORDING_METADATA_VERSION,
+        durationMs,
+        mimeType,
+        tracks,
+        encoding: plan
+      }),
       'utf8'
     )
     const file: RecordingFile = {
       path: finalPath,
-      name: finalPath.split(/[\\/]/).pop() ?? 'grabacion.webm',
+      name: basename(finalPath),
       size: info.size,
       mimeType,
+      format: recordingFormatForName(finalPath),
       durationMs,
       createdAt: this.now(),
-      tracks
+      tracks,
+      metadataStatus: 'ok',
+      codec: plan?.codec ?? null,
+      actualWidth: plan?.actualWidth ?? null,
+      actualHeight: plan?.actualHeight ?? null,
+      actualFps: plan?.actualFps ?? null,
+      measuredFps: plan?.measuredFps ?? null,
+      encoding: plan
     }
     this.status = {
       ...emptyStatus(),
@@ -602,6 +878,8 @@ export class RecordingService {
       const candidates = [
         candidate,
         tempPathFor(candidate),
+        `${candidate}.ffmpeg.part`,
+        metadataPathFor(candidate),
         ...(request.audio.separateTracks
           ? AUDIO_TRACKS.flatMap((kind) => [
               audioTrackPathFor(candidate, kind),
@@ -615,36 +893,70 @@ export class RecordingService {
     throw new Error('No se encontró un nombre de archivo libre.')
   }
 
-  private async readDuration(path: string): Promise<number> {
-    const metadata = await this.readMetadata(path)
-    const value = metadata?.durationMs
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
+  /** Parsea el sidecar con Zod: un archivo manipulado no puede convertirse en dato fiable. */
+  private async readMetadata(path: string): Promise<ParsedMetadata> {
+    const empty: ParsedMetadata = {
+      status: 'missing',
+      durationMs: null,
+      mimeType: null,
+      tracks: [],
+      encoding: null,
+      raw: null,
+      rawText: null
+    }
+    let rawText: string
+    try {
+      rawText = await readFile(metadataPathFor(path), 'utf8')
+    } catch {
+      return empty
+    }
+
+    let json: unknown
+    try {
+      json = JSON.parse(rawText)
+    } catch {
+      return { ...empty, status: 'invalid', rawText }
+    }
+
+    const parsed = recordingMetadataSchema.safeParse(json)
+    if (!parsed.success) return { ...empty, status: 'invalid', rawText }
+    const data = parsed.data
+    const durationMs =
+      typeof data.durationMs === 'number' && Number.isFinite(data.durationMs) && data.durationMs >= 0
+        ? data.durationMs
+        : null
+    const tracks = this.sanitizeMetadataTracks(data.tracks, path)
+    const status: RecordingMetadataStatus =
+      durationMs === null && data.encoding == null && tracks.length === 0 ? 'invalid' : 'ok'
+    return {
+      status,
+      durationMs,
+      mimeType: typeof data.mimeType === 'string' && data.mimeType ? data.mimeType : null,
+      tracks,
+      encoding: data.encoding ?? null,
+      raw: data,
+      rawText
+    }
   }
 
-  private async readTracks(path: string): Promise<AudioTrackFile[]> {
-    const metadata = await this.readMetadata(path)
-    if (!Array.isArray(metadata?.tracks)) return []
+  /** Solo se aceptan las pistas en su ruta canónica: un sidecar editado no apunta a otro vídeo. */
+  private sanitizeMetadataTracks(tracks: unknown, finalPath: string): AudioTrackFile[] {
+    if (!Array.isArray(tracks)) return []
     const dir = this.getOutputDir()
-    return metadata.tracks.filter((track: unknown): track is AudioTrackFile => {
+    return tracks.filter((track): track is AudioTrackFile => {
       if (typeof track !== 'object' || track === null) return false
       const value = track as Partial<AudioTrackFile>
-      return (
-        (value.kind === 'microphone' || value.kind === 'system') &&
-        typeof value.path === 'string' &&
-        typeof value.name === 'string' &&
-        typeof value.mimeType === 'string' &&
-        isPathInside(dir, value.path)
-      )
+      if (
+        (value.kind !== 'microphone' && value.kind !== 'system') ||
+        typeof value.path !== 'string' ||
+        typeof value.name !== 'string' ||
+        typeof value.mimeType !== 'string'
+      ) {
+        return false
+      }
+      const expected = audioTrackPathFor(finalPath, value.kind)
+      return isPathInside(dir, value.path) && resolve(value.path) === resolve(expected)
     })
-  }
-
-  private async readMetadata(path: string): Promise<Record<string, unknown> | null> {
-    try {
-      const raw: unknown = JSON.parse(await readFile(metadataPathFor(path), 'utf8'))
-      return typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null
-    } catch {
-      return null
-    }
   }
 
   private safePath(path: string): string {

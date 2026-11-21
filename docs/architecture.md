@@ -25,10 +25,10 @@
 | --- | --- | --- |
 | `settings` | Implementado (JSON en `userData`, escritura atómica y serializada) | 1 |
 | `capture` | Implementado: fuentes reales, selección revalidada, eventos y vista previa (Sesión 03) | 2 |
-| `recording` | Implementado: estado en main, `MediaRecorder` en renderer, archivos y FFmpeg opcional (Sesión 04) | 2 |
-| `audio` | Pendiente | 3 |
-| `encoding` | Pendiente | 4 |
-| `storage` | Pendiente | 5 |
+| `recording` | Implementado: motor, audio, codificación verificada y biblioteca (Sesión 07) | 2 |
+| `audio` | Implementado: pistas reales, permisos y loopback de Windows verificado (Sesión 05) | 3 |
+| `encoding` | Implementado: planes y capacidades probadas, FFmpeg con arrays de args (Sesión 06) | 4 |
+| `storage` | Implementado: metadatos, miniaturas, reproducción y administración de archivos (Sesión 07) | 5 |
 
 Los servicios no dependen directamente de Electron cuando es posible (p. ej. `SettingsService` recibe la ruta del archivo), lo que permite probarlos de forma aislada.
 
@@ -68,7 +68,7 @@ Se evitó una librería de componentes o Tailwind para no sumar dependencias. Lo
 
 - **Componentes reutilizables** en `src/components/ui`: `Button`, `IconButton`, `Select`, `Switch`, `SegmentedControl`, `Card`, `Panel`, `Modal` (sobre `<dialog>` nativo), `StatusIndicator`, `PendingTag`, `SideNav` (por rutas o por estado) y `PendingControl`.
 - **Controles pendientes**: `src/utils/pendingControls.ts` es el catálogo de controles sin backend. Se muestran deshabilitados, sin valor y con la etiqueta «Pendiente · Fase N». Al implementar una fase, el control se retira del catálogo y se conecta a su ajuste real.
-- **Grabaciones**: `useRecordings()` expone los archivos reales devueltos por `recording:list`; `RecordingCard` recibe acciones reales de reproducción, revelado y borrado.
+- **Grabaciones**: `useRecordings()` expone los archivos reales devueltos por `recording:list`; en la Sesión 07 añade miniaturas, metadatos verificados, URL de reproducción y acciones de renombrado y limpieza.
 - **Galería** (`/#/design`): solo existe con `npm run dev`. Sus datos son de ejemplo y no aparecen en producción.
 - El panel de Inicio sustituye a las tarjetas de «funciones planificadas»; la hoja de ruta pasó a Ajustes > General.
 
@@ -179,3 +179,42 @@ probado por OpenScreen.
   interfaz avisó de la diferencia en lugar de presentar 60 fps como tiempo real obtenido.
 - El sondeo de `MediaRecorder` verificó por escritura real VP8, VP9, AV1, MP4 AVC/AV1 y
   Matroska H.264. Las peticiones de 4K/120 fps sobre una fuente 1080p60 se degradan y se avisa.
+
+## Biblioteca y almacenamiento (Sesión 07)
+
+- `shared/recording.ts` define `RecordingLibrarySnapshot` y el esquema versionado del sidecar
+  `.openscreen.json`. `list`, `delete`, `rename` y `cleanupTemp` devuelven siempre el mismo tipo:
+  elementos, carpeta, disponibilidad, temporales, error y marca de tiempo.
+- **Nada se inventa**: duración, MIME, pistas y `EncodingPlan` se leen con Zod. Si el sidecar
+  falta, está corrupto o no aporta datos verificables, el campo queda `null`, `metadataStatus`
+  vale `missing`/`invalid` y la interfaz muestra «Desconocido». Un sidecar antiguo sin `version`
+  sigue siendo legible; los campos desconocidos se conservan al renombrar.
+- `RecordingService` comprueba la carpeta con `stat`, `access(W_OK)` y un archivo de sondeo real;
+  `statfs` aporta el espacio libre como dato informativo. La ruta de cada operación se resuelve y
+  se restringe a la carpeta configurada; un sidecar manipulado no puede ampliar un borrado ni un
+  renombrado a rutas arbitrarias.
+- `rename` valida el nombre en main y renderer, rechaza colisiones antes de tocar el disco y mueve
+  vídeo, pistas canónicas y sidecar. Si falla, restaura el sidecar original byte a byte y revierte
+  las pistas ya movidas. `delete` pide confirmar escribiendo el nombre exacto en la interfaz.
+- `cleanupTempFiles()` elimina solo `.part` gestionados por OpenScreen y omite los de la sesión
+  activa (vídeo, transcodificación y pistas de audio).
+- `electron/main/mediaProtocol.ts` registra `openscreen-media://` antes de `ready` y sirve el archivo
+  real con `protocol.handle`, validando esquema, host, contención de ruta, extensión y existencia.
+  Soporta rangos de bytes para que el navegador pueda buscar en el vídeo; responde con CORS para
+  que el `<canvas>` pueda capturar un fotograma sin contaminarse. No se desactiva `webSecurity`.
+- `src/services/thumbnailService.ts` decodifica el vídeo en un `<video>` oculto, captura un
+  fotograma real y lo cachea por ruta; si el contenedor no se puede decodificar, la tarjeta muestra
+  su marcador en lugar de una imagen inventada.
+- `VideoPlayerModal` opera el `<video>` real: reproducir/pausar, ±10 s, barra de progreso, volumen,
+  silencio y duración obtenida del propio elemento. `filterAndSortRecordings()` es una función pura
+  que filtra por texto/formato/periodo y ordena por fecha/nombre/duración/tamaño; lo desconocido
+  siempre queda al final.
+
+### Verificación real (Sesión 07)
+
+- El artefacto real `OpenScreen-20261120-232338.webm` (792.611 bytes, cabecera EBML `1a45dfa3`)
+  se lista con `durationMs: 3190`, `metadataStatus: ok`, VP9, 1280×720, 24 fps aplicados y
+  23,7 fps medidos. Si el archivo no existe en otra máquina, la prueba se omite en lugar de
+  sustituirse por datos de ejemplo.
+- `npm test`: 80 pruebas; `npm run typecheck` y `npm run build`: correctos. La CSP compilada
+  incluye `openscreen-media:` solo en `media-src`.

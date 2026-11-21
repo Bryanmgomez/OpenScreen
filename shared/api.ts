@@ -12,9 +12,11 @@ import type {
   RecordingChunk,
   RecordingFilePath,
   RecordingFinishRequest,
-  RecordingList,
+  RecordingLibrarySnapshot,
+  RecordingRenameRequest,
   RecordingSessionRequest,
-  RecordingStatus
+  RecordingStatus,
+  RecordingStorageInfo
 } from './recording'
 import type { Settings, SettingsPatch } from './settings'
 
@@ -81,10 +83,17 @@ export interface OpenScreenApi {
     reportAudioState(state: RecordingAudioState): Promise<RecordingStatus>
     finish(request: RecordingFinishRequest): Promise<RecordingStatus>
     cancel(request: RecordingSessionRequest): Promise<RecordingStatus>
-    list(): Promise<RecordingList>
+    list(): Promise<RecordingLibrarySnapshot>
     reveal(request: RecordingFilePath): Promise<void>
     open(request: RecordingFilePath): Promise<void>
-    delete(request: RecordingFilePath): Promise<RecordingList>
+    delete(request: RecordingFilePath): Promise<RecordingLibrarySnapshot>
+    /** Renombra el vídeo, sus pistas y el sidecar como una sola operación lógica. */
+    rename(request: RecordingRenameRequest): Promise<RecordingLibrarySnapshot>
+    /** Borra únicamente temporales huérfanos; nunca toca los de la sesión activa. */
+    cleanupTemp(): Promise<RecordingLibrarySnapshot>
+    getStorageInfo(): Promise<RecordingStorageInfo>
+    /** Devuelve una URL de esquema privado, validada en main, para reproductor y miniaturas. */
+    getMediaUrl(request: RecordingFilePath): Promise<string>
     pickOutputDir(): Promise<string | null>
     checkFfmpeg(): Promise<boolean>
     /** Codificadores/tecnologías realmente detectados, nunca una lista supuesta. */
