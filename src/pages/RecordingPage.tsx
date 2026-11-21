@@ -1,39 +1,23 @@
 import { useEffect, useState } from 'react'
-import { Check, Monitor, RefreshCw, Scan, AppWindow } from 'lucide-react'
-import type { CaptureSource, SourceRef } from '@shared/capture'
-import { RegionForm } from '@/components/capture/RegionForm'
-import { RecordingControls } from '@/components/recording/RecordingControls'
-import { SourceCard } from '@/components/capture/SourceCard'
-import { SourcePreview } from '@/components/capture/SourcePreview'
-import { Badge } from '@/components/ui/Badge'
+import { Monitor, RefreshCw } from 'lucide-react'
+import type { SourceRef } from '@shared/capture'
+import { PreviewStage } from '@/components/capture/PreviewStage'
+import { SourcePanel } from '@/components/capture/SourcePanel'
+import { SourcePickerModal } from '@/components/capture/SourcePickerModal'
+import { SourceTypeTiles, type SourceTab } from '@/components/capture/SourceTypeTiles'
+import { AudioMixer } from '@/components/recording/AudioMixer'
+import { OutputPanel } from '@/components/recording/OutputPanel'
+import { RecordingDock } from '@/components/recording/RecordingDock'
+import { RecordingNotices } from '@/components/recording/RecordingNotices'
+import { VideoSettingsPanel } from '@/components/recording/VideoSettingsPanel'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Panel } from '@/components/ui/Panel'
-import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { useCaptureStore } from '@/store/captureStore'
 import { useRecordingStore } from '@/store/recordingStore'
 
-type Tab = 'screen' | 'window' | 'region'
-
-const TABS = [
-  { value: 'screen' as const, label: 'Monitores' },
-  { value: 'window' as const, label: 'Ventanas' },
-  { value: 'region' as const, label: 'Región' }
-]
-
-function toRef(source: CaptureSource): SourceRef {
-  return {
-    id: source.id,
-    kind: source.kind,
-    name: source.name,
-    displayId: source.displayId,
-    width: source.width,
-    height: source.height
-  }
-}
-
 export function RecordingPage() {
-  const [tab, setTab] = useState<Tab>('screen')
+  const [tab, setTab] = useState<SourceTab>('screen')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const { snapshot, error, busy, init, refresh, selectSource, setRegion, clearSelection } =
     useCaptureStore()
   const recordingStatus = useRecordingStore((state) => state.status)
@@ -42,28 +26,42 @@ export function RecordingPage() {
     void init()
   }, [init])
 
+  // Al cargar la selección guardada, el tipo de fuente refleja lo que ya estaba elegido.
+  const selectedKind = snapshot?.selection?.kind
+  useEffect(() => {
+    if (selectedKind) setTab(selectedKind)
+  }, [selectedKind])
+
   const recordingActive =
     recordingStatus.state === 'recording' || recordingStatus.state === 'paused'
   const selection = snapshot?.selection ?? null
-  const sources = snapshot?.sources.filter((source) => source.kind === tab) ?? []
+  const selectedSource = selection
+    ? snapshot?.sources.find((source) => source.id === selection.id && source.kind === selection.kind)
+    : undefined
+
+  const chooseTab = (next: SourceTab): void => {
+    setTab(next)
+    setPickerOpen(true)
+  }
+
+  const pick = (source: SourceRef): void => {
+    void selectSource(source).then(() => setPickerOpen(false))
+  }
 
   return (
-    <div className="page">
-      <header className="page__header">
+    <div className="page page--wide">
+      <header className="page__header page__header--split">
         <div>
-          <h1>Grabación</h1>
-          <p>Selecciona la fuente, configura la salida y graba con control real de inicio, pausa y fin.</p>
+          <h1>Grabar pantalla</h1>
+          <p>Elige la fuente, ajusta la salida y graba con control real de inicio, pausa y fin.</p>
         </div>
-        <div className="toolbar">
-          <SegmentedControl label="Tipo de fuente" value={tab} options={TABS} onChange={setTab} />
-          <Button
-            icon={<RefreshCw size={14} />}
-            onClick={() => void refresh()}
-            disabled={busy || !snapshot}
-          >
-            Actualizar
-          </Button>
-        </div>
+        <Button
+          icon={<RefreshCw size={14} />}
+          onClick={() => void refresh()}
+          disabled={busy || !snapshot}
+        >
+          Actualizar fuentes
+        </Button>
       </header>
 
       {error && <p className="notice notice--error">{error}</p>}
@@ -85,64 +83,42 @@ export function RecordingPage() {
             </p>
           ))}
 
-          {tab === 'region' ? (
-            <RegionForm region={snapshot.region} busy={busy} onSave={setRegion} />
-          ) : (
-            <div className="capture-layout">
-              <Panel
-                title={tab === 'screen' ? 'Monitores conectados' : 'Ventanas disponibles'}
-                icon={tab === 'screen' ? <Monitor size={15} /> : <AppWindow size={15} />}
-                action={<Badge>{sources.length}</Badge>}
-              >
-                {sources.length === 0 ? (
-                  <EmptyState
-                    icon={tab === 'screen' ? <Monitor size={26} /> : <Scan size={26} />}
-                    title={tab === 'screen' ? 'No hay monitores' : 'No hay ventanas'}
-                    description="No se detectaron fuentes de este tipo. Pulsa «Actualizar» para volver a buscar."
-                  />
-                ) : (
-                  <div className="source-grid">
-                    {sources.map((source) => (
-                      <SourceCard
-                        key={source.id}
-                        source={source}
-                        selected={selection?.id === source.id}
-                        disabled={recordingActive}
-                        onSelect={() => void selectSource(toRef(source))}
-                      />
-                    ))}
-                  </div>
-                )}
-              </Panel>
-
-              <div className="stack">
-                <RecordingControls />
-                <SourcePreview selection={selection} available={snapshot.selectionAvailable} />
-
-                <Panel title="Selección actual" icon={<Check size={15} />}>
-                  {selection ? (
-                    <div className="stack">
-                      <dl className="info-list">
-                        <dt>Fuente</dt>
-                        <dd>{selection.name}</dd>
-                        <dt>Tipo</dt>
-                        <dd>{selection.kind === 'screen' ? 'Monitor' : 'Ventana'}</dd>
-                        <dt>Estado</dt>
-                        <dd>{snapshot.selectionAvailable ? 'Disponible' : 'Ya no disponible'}</dd>
-                      </dl>
-                      <Button onClick={() => void clearSelection()} disabled={busy || recordingActive}>
-                        Quitar selección
-                      </Button>
-                    </div>
-                  ) : (
-                    <p className="card__description">
-                      Aún no has elegido una fuente. Haz clic en una tarjeta para seleccionarla.
-                    </p>
-                  )}
-                </Panel>
-              </div>
+          <div className="rec-layout">
+            <div className="rec-main">
+              <PreviewStage
+                selection={selection}
+                available={snapshot.selectionAvailable}
+                thumbnailUrl={selectedSource?.thumbnailUrl ?? null}
+              />
+              <RecordingDock />
+              <RecordingNotices />
             </div>
-          )}
+
+            <div className="rec-side">
+              <SourceTypeTiles value={tab} onChange={chooseTab} />
+              <SourcePanel
+                snapshot={snapshot}
+                busy={busy}
+                locked={recordingActive}
+                onChange={() => setPickerOpen(true)}
+                onClear={() => void clearSelection()}
+              />
+              <VideoSettingsPanel />
+              <AudioMixer />
+              <OutputPanel />
+            </div>
+          </div>
+
+          <SourcePickerModal
+            open={pickerOpen}
+            tab={tab}
+            snapshot={snapshot}
+            busy={busy}
+            locked={recordingActive}
+            onClose={() => setPickerOpen(false)}
+            onSelect={pick}
+            onSaveRegion={setRegion}
+          />
         </>
       )}
     </div>
