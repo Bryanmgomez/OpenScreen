@@ -24,7 +24,7 @@
 | Servicio | Estado | Fase |
 | --- | --- | --- |
 | `settings` | Implementado (JSON en `userData`, escritura atómica y serializada) | 1 |
-| `capture` | Pendiente | 2 |
+| `capture` | Implementado: fuentes reales, selección revalidada, eventos y vista previa (Sesión 03) | 2 |
 | `recording` | Pendiente | 2 |
 | `audio` | Pendiente | 3 |
 | `encoding` | Pendiente | 4 |
@@ -57,6 +57,25 @@ Se evitó una librería de componentes o Tailwind para no sumar dependencias. Lo
 
 ## Cómo encajarán las fases siguientes
 
-- **Captura (2):** un servicio en main enumera fuentes con `desktopCapturer`; el renderer obtiene el `MediaStream` y lo graba con `MediaRecorder`. Los permisos se habilitarán de forma explícita en `electron/main/security/session.ts`.
+- **Captura (2, en curso):** la Sesión 03 ya enumera fuentes con `desktopCapturer`/`screen`, permite elegirlas y muestra vista previa real; la grabación con `MediaRecorder` llega en las siguientes sesiones. El permiso `display-capture` se habilitó de forma explícita y mínima en `electron/main/security/session.ts`, y `setDisplayMediaRequestHandler` concede exactamente la fuente elegida.
 - **Audio (3):** mezcla y medidores con Web Audio API en el renderer; dispositivos y permisos coordinados desde main.
 - **Codificación (4):** FFmpeg se ejecutará como proceso hijo desde main con arreglos de argumentos. Si `MediaRecorder` no ofrece la fiabilidad requerida para algún caso (p. ej. 120 FPS o audio del sistema en Windows), se evaluará una solución nativa complementaria en lugar de simularla.
+
+## Interfaz (Sesión 02)
+
+- **Componentes reutilizables** en `src/components/ui`: `Button`, `IconButton`, `Select`, `Switch`, `SegmentedControl`, `Card`, `Panel`, `Modal` (sobre `<dialog>` nativo), `StatusIndicator`, `PendingTag`, `SideNav` (por rutas o por estado) y `PendingControl`.
+- **Controles pendientes**: `src/utils/pendingControls.ts` es el catálogo de controles sin backend. Se muestran deshabilitados, sin valor y con la etiqueta «Pendiente · Fase N». Al implementar una fase, el control se retira del catálogo y se conecta a su ajuste real.
+- **Grabaciones**: `useRecordings()` es el único punto de acceso a los datos y hoy no devuelve nada; `RecordingCard` ya está lista para recibir `RecordingItem`. Las acciones sin handler quedan deshabilitadas.
+- **Galería** (`/#/design`): solo existe con `npm run dev`. Sus datos son de ejemplo y no aparecen en producción.
+- El panel de Inicio sustituye a las tarjetas de «funciones planificadas»; la hoja de ruta pasó a Ajustes > General.
+
+## Interfaz (Sesión 03)
+
+- `src/pages/RecordingPage.tsx` muestra monitores y ventanas reales, con miniatura, resolución,
+  frecuencia y badge de principal. La selección se persiste como referencia en ajustes.
+- `SourcePreview` pide el `MediaStream` mediante `getDisplayMedia`; main concede la fuente
+  elegida. No es una imagen de ejemplo.
+- `RegionForm` permite guardar coordenadas; el recorte efectivo se implementará con el motor
+  de grabación. La interfaz lo indica expresamente para no simular funcionalidad.
+- `useCaptureStore` refleja instantáneas de main; se suscribe antes de leer para no perder
+  cambios producidos durante el arranque.

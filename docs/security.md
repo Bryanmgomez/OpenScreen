@@ -9,7 +9,8 @@ Medidas aplicadas en la Fase 1 y dónde viven.
 | Preload con API mínima y tipada; no se expone `ipcRenderer` ni Node | `electron/preload/index.ts` |
 | Validación de cada mensaje IPC con zod antes de ejecutar nada | `electron/main/ipc/register.ts` |
 | Rechazo de mensajes cuyo remitente no sea el frame principal del renderer propio | `electron/main/ipc/register.ts`, `security/trust.ts` |
-| Todos los permisos del navegador denegados por defecto | `electron/main/security/session.ts` |
+| Permisos denegados por defecto, excepto `display-capture` solo para el renderer propio | `electron/main/security/session.ts` |
+| La fuente del `MediaStream` la decide main, nunca la página (`setDisplayMediaRequestHandler`) | `electron/main/index.ts` |
 | CSP estricta por cabecera (y por `<meta>` en producción) | `security/csp.ts`, `electron.vite.config.ts` |
 | Sin ventanas nuevas, sin `<webview>`, sin navegación fuera de la UI propia | `security/session.ts` |
 | Una sola instancia de la aplicación | `electron/main/index.ts` |
@@ -27,13 +28,13 @@ base-uri 'none'; form-action 'none'
 
 ## Reglas para las siguientes fases
 
-- Los permisos de captura y micrófono se habilitarán de forma explícita y mínima, solo para el renderer propio.
+- El permiso `display-capture` ya está habilitado de forma explícita y mínima, solo para el frame principal del renderer propio. Micrófono y audio del sistema se habilitarán en la Fase 3 con el mismo criterio.
 - Toda ruta de archivo recibida del renderer se validará y normalizará en main.
 - FFmpeg y otros ejecutables se lanzarán con arreglos de argumentos, nunca concatenando cadenas de shell.
 
 ## Limitaciones conocidas
 
-- Un renderer comprometido aún podría invocar los canales IPC existentes; por eso cada canal valida sus datos y expone solo la operación necesaria.
+- Un renderer comprometido aún podría invocar los canales IPC existentes; por eso cada canal valida sus datos y expone solo la operación necesaria. En particular no puede pedir una fuente arbitraria: solo seleccionar una de las enumeradas por main.
 - No hay firma de código ni actualizaciones automáticas todavía (Fase 6).
 
 ## Reportar vulnerabilidades

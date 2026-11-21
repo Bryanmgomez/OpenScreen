@@ -33,6 +33,13 @@ const api: OpenScreenApi = {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.settings.get),
     update: (patch) => ipcRenderer.invoke(IPC_CHANNELS.settings.update, patch),
     onChange: (listener) => subscribe(IPC_CHANNELS.settings.changed, listener)
+  },
+  capture: {
+    getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.capture.getSnapshot),
+    selectSource: (ref) => ipcRenderer.invoke(IPC_CHANNELS.capture.selectSource, ref),
+    setRegion: (region) => ipcRenderer.invoke(IPC_CHANNELS.capture.setRegion, region),
+    clearSelection: () => ipcRenderer.invoke(IPC_CHANNELS.capture.clearSelection),
+    onSourcesChange: (listener) => subscribe(IPC_CHANNELS.capture.sourcesChanged, listener)
   }
 }
 

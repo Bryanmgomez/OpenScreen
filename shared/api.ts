@@ -1,3 +1,8 @@
+import type {
+  CaptureRegion,
+  CaptureSnapshot,
+  SourceRef
+} from './capture'
 import type { Settings, SettingsPatch } from './settings'
 
 /** Función que cancela una suscripción a un evento del proceso main. */
@@ -39,5 +44,13 @@ export interface OpenScreenApi {
     get(): Promise<Settings>
     update(patch: SettingsPatch): Promise<Settings>
     onChange(listener: (settings: Settings) => void): Unsubscribe
+  }
+  /** Detección y selección de fuentes reales (monitores, ventanas y región). */
+  capture: {
+    getSnapshot(): Promise<CaptureSnapshot>
+    selectSource(ref: SourceRef): Promise<CaptureSnapshot>
+    setRegion(region: CaptureRegion): Promise<CaptureSnapshot>
+    clearSelection(): Promise<CaptureSnapshot>
+    onSourcesChange(listener: (snapshot: CaptureSnapshot) => void): Unsubscribe
   }
 }

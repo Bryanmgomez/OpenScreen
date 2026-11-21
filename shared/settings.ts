@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { captureRegionSchema, sourceRefSchema } from './capture'
 
 /**
  * Esquema de ajustes persistentes.
@@ -19,16 +20,29 @@ const appearanceSchema = z.object({
   reduceMotion: z.boolean().catch(false)
 })
 
+/**
+ * La fuente elegida se guarda como referencia, nunca como fuente viva: al reaplicarla se
+ * comprueba que siga existiendo (los ids de `desktopCapturer` no son estables).
+ */
+const captureSettingsSchema = z
+  .object({
+    source: sourceRefSchema.nullable().catch(null),
+    region: captureRegionSchema.nullable().catch(null)
+  })
+  .catch({ source: null, region: null })
+
 export const settingsSchema = z.object({
   schemaVersion: z.literal(1).catch(1),
-  appearance: appearanceSchema.catch({ theme: 'dark', reduceMotion: false })
+  appearance: appearanceSchema.catch({ theme: 'dark', reduceMotion: false }),
+  capture: captureSettingsSchema
 })
 
 export type Settings = z.infer<typeof settingsSchema>
 
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: 1,
-  appearance: { theme: 'dark', reduceMotion: false }
+  appearance: { theme: 'dark', reduceMotion: false },
+  capture: { source: null, region: null }
 }
 
 /** Actualización parcial recibida por IPC. Estricta: no admite claves desconocidas. */
@@ -38,6 +52,13 @@ export const settingsPatchSchema = z
       .object({
         theme: themeSchema.optional(),
         reduceMotion: z.boolean().optional()
+      })
+      .strict()
+      .optional(),
+    capture: z
+      .object({
+        source: sourceRefSchema.nullable().optional(),
+        region: captureRegionSchema.nullable().optional()
       })
       .strict()
       .optional()
@@ -58,6 +79,10 @@ export function mergeSettings(current: Settings, patch: SettingsPatch): Settings
     appearance: {
       theme: patch.appearance?.theme ?? current.appearance.theme,
       reduceMotion: patch.appearance?.reduceMotion ?? current.appearance.reduceMotion
+    },
+    capture: {
+      source: patch.capture?.source !== undefined ? patch.capture.source : current.capture.source,
+      region: patch.capture?.region !== undefined ? patch.capture.region : current.capture.region
     }
   }
 }

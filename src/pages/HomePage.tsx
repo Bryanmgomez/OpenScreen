@@ -1,49 +1,28 @@
-import { Circle, Film, Info, ListChecks, Mic, Monitor, Server } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { Circle, Film, History, Mic, Monitor } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Logo } from '@/components/brand/Logo'
-import { SystemInfo } from '@/components/SystemInfo'
-import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
-import { cn } from '@/utils/cn'
-import { PHASES, PHASE_STATUS_LABEL } from '@/utils/roadmap'
-
-interface PlannedFeature {
-  title: string
-  description: string
-  phase: number
-  icon: ReactNode
-}
-
-const PLANNED_FEATURES: readonly PlannedFeature[] = [
-  {
-    title: 'Fuente de captura',
-    description: 'Pantalla completa, monitor, ventana o región.',
-    phase: 2,
-    icon: <Monitor size={18} />
-  },
-  {
-    title: 'Audio',
-    description: 'Sistema y micrófono, con pistas independientes.',
-    phase: 3,
-    icon: <Mic size={18} />
-  },
-  {
-    title: 'Calidad de video',
-    description: 'Resolución, FPS, códecs y aceleración por hardware.',
-    phase: 4,
-    icon: <Film size={18} />
-  }
-]
+import { Panel } from '@/components/ui/Panel'
+import { PendingControl } from '@/components/ui/PendingControl'
+import { PendingTag } from '@/components/ui/PendingTag'
+import { SettingRow } from '@/components/ui/SettingRow'
+import { StatusIndicator } from '@/components/ui/StatusIndicator'
+import { useRecordings } from '@/hooks/useRecordings'
+import { RecordingCard } from '@/components/recordings/RecordingCard'
+import { PENDING_CONTROLS as C } from '@/utils/pendingControls'
 
 export function HomePage() {
+  const { items, available } = useRecordings()
+  const recent = items.slice(0, 3)
+
   return (
     <div className="page">
       <section className="hero">
-        <Logo size={64} />
+        <Logo size={56} />
         <div className="hero__text">
           <h1>OpenScreen</h1>
-          <p>Grabador de pantalla de código abierto, moderno y eficiente.</p>
+          <p>Grabador de pantalla de código abierto.</p>
+          <StatusIndicator tone="success" label="Detección de fuentes disponible" />
         </div>
         <div className="hero__actions">
           <Button
@@ -51,56 +30,73 @@ export function HomePage() {
             large
             icon={<Circle size={16} fill="currentColor" />}
             disabled
-            title="Disponible cuando se implemente el motor de captura (Fase 2)"
+            title="La grabación aún no está implementada; primero elige una fuente en Grabación"
           >
             Iniciar grabación
           </Button>
-          <div className="hero__hint">
-            <Info size={14} />
-            El motor de captura llega en la Fase 2.
-          </div>
+          <PendingTag phase={2} />
         </div>
       </section>
 
-      <div className="grid-3">
-        {PLANNED_FEATURES.map((feature) => (
-          <Card
-            key={feature.title}
-            className="feature"
-            icon={feature.icon}
-            title={feature.title}
-            description={feature.description}
-            action={<Badge tone="warning">Fase {feature.phase}</Badge>}
-          />
-        ))}
-      </div>
-
       <div className="grid-2">
-        <Card title="Hoja de ruta" icon={<ListChecks size={18} />}>
-          <ol className="roadmap">
-            {PHASES.map((phase) => (
-              <li
-                key={phase.number}
-                className={cn('roadmap__item', phase.status === 'done' && 'roadmap__item--done')}
-              >
-                <span className="roadmap__number">{phase.number}</span>
-                <span className="roadmap__title">{phase.title}</span>
-                <Badge
-                  tone={
-                    phase.status === 'done' ? 'success' : phase.status === 'next' ? 'accent' : 'neutral'
-                  }
-                >
-                  {PHASE_STATUS_LABEL[phase.status]}
-                </Badge>
-              </li>
-            ))}
-          </ol>
-        </Card>
+        <Panel
+          title="Captura"
+          icon={<Monitor size={16} />}
+          action={
+            <Link className="btn btn--ghost" to="/recording">
+              Elegir fuente
+            </Link>
+          }
+        >
+          <div className="stack">
+            <p className="card__description">
+              Los monitores y ventanas reales se detectan automáticamente. Selecciona la fuente y
+              comprueba su vista previa en la pantalla de Grabación.
+            </p>
+            <StatusIndicator tone="success" label="Fuentes de captura disponibles" />
+          </div>
+        </Panel>
 
-        <Card title="Sistema" icon={<Server size={18} />} description="Datos leídos del proceso main por IPC.">
-          <SystemInfo />
-        </Card>
+        <Panel title="Ajustes rápidos" icon={<Film size={16} />}>
+          <SettingRow label="Resolución">
+            <PendingControl def={C.resolution} />
+          </SettingRow>
+          <SettingRow label="FPS">
+            <PendingControl def={C.fps} />
+          </SettingRow>
+          <SettingRow label="Audio del sistema">
+            <PendingControl def={C.systemAudio} />
+          </SettingRow>
+          <SettingRow label="Micrófono">
+            <PendingControl def={C.microphone} />
+          </SettingRow>
+          <div className="panel__note">
+            <Mic size={12} /> Video: Fase 4 · Audio: Fase 3
+          </div>
+        </Panel>
       </div>
+
+      <Panel
+        title="Grabaciones recientes"
+        icon={<History size={16} />}
+        action={
+          <Link className="btn btn--ghost" to="/library">
+            Ver todas
+          </Link>
+        }
+      >
+        {recent.length > 0 ? (
+          <div className="rec-grid">
+            {recent.map((recording) => (
+              <RecordingCard key={recording.id} recording={recording} />
+            ))}
+          </div>
+        ) : (
+          <p className="card__description">
+            {available ? 'Aún no hay grabaciones.' : 'Aún no hay grabaciones. La biblioteca llega en la Fase 5.'}
+          </p>
+        )}
+      </Panel>
     </div>
   )
 }

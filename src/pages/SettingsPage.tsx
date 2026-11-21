@@ -3,6 +3,7 @@ import { AppearanceSection } from './settings/AppearanceSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { PendingSection } from './settings/PendingSection'
 import { SETTINGS_SECTIONS } from './settings/sections'
+import { SideNav } from '@/components/ui/SideNav'
 import { useSettingsStore } from '@/store/settingsStore'
 
 export function SettingsPage() {
@@ -20,20 +21,13 @@ export function SettingsPage() {
       {error && <div className="notice notice--error">{error}</div>}
 
       <div className="settings">
-        <nav className="settings__nav" aria-label="Categorías de ajustes">
-          {SETTINGS_SECTIONS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className="settings__nav-item"
-              aria-current={id === activeId ? 'page' : undefined}
-              onClick={() => setActiveId(id)}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
-          ))}
-        </nav>
+        <SideNav
+          className="sidenav--compact"
+          label="Categorías de ajustes"
+          items={SETTINGS_SECTIONS}
+          activeId={activeId}
+          onSelect={setActiveId}
+        />
 
         <div className="settings__panel">
           {active?.id === 'general' && <GeneralSection />}

@@ -10,10 +10,14 @@ import {
   type LucideIcon
 } from 'lucide-react'
 
-/** Qué llegará en una sección todavía no implementada. */
-export interface PendingInfo {
-  phase: number
-  items: readonly string[]
+import { PENDING_CONTROLS, type PendingControlDef } from '@/utils/pendingControls'
+
+const C = PENDING_CONTROLS
+
+/** Grupo de controles pendientes dentro de una categoría. */
+export interface PendingGroup {
+  title: string
+  controls: readonly PendingControlDef[]
 }
 
 export interface SettingsSectionDef {
@@ -21,7 +25,7 @@ export interface SettingsSectionDef {
   label: string
   icon: LucideIcon
   /** Ausente = la sección ya es funcional. */
-  pending?: PendingInfo
+  pending?: { phase: number; groups: readonly PendingGroup[] }
 }
 
 /** Categorías de ajustes definidas en el plan del proyecto. */
@@ -31,19 +35,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
     id: 'capture',
     label: 'Captura',
     icon: Monitor,
-    pending: {
-      phase: 2,
-      items: ['Cursor visible u oculto', 'Fuente por defecto', 'Comportamiento ante cambios de pantalla']
-    }
+    pending: { phase: 2, groups: [{ title: 'Fuente y cursor', controls: [C.captureType, C.captureSource, C.cursor] }] }
   },
   {
     id: 'video',
     label: 'Video',
     icon: Video,
-    pending: {
-      phase: 4,
-      items: ['Resolución y FPS', 'Formato y códec', 'Calidad, bitrate y opciones avanzadas']
-    }
+    pending: { phase: 4, groups: [{ title: 'Salida de video', controls: [C.resolution, C.fps, C.format, C.quality] }] }
   },
   {
     id: 'audio',
@@ -51,29 +49,29 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
     icon: Mic,
     pending: {
       phase: 3,
-      items: ['Dispositivos de entrada y salida', 'Volumen independiente', 'Pistas separadas']
+      groups: [
+        { title: 'Fuentes', controls: [C.systemAudio, C.microphone, C.separateTracks] },
+        { title: 'Dispositivos', controls: [C.inputDevice, C.outputDevice] }
+      ]
     }
   },
   {
     id: 'shortcuts',
     label: 'Atajos',
     icon: Keyboard,
-    pending: { phase: 2, items: ['Iniciar, pausar y detener', 'Silenciar micrófono', 'Atajos configurables'] }
+    pending: { phase: 2, groups: [{ title: 'Atajos globales', controls: [C.shortcutStart, C.shortcutPause, C.shortcutMute] }] }
   },
   {
     id: 'storage',
     label: 'Almacenamiento',
     icon: HardDrive,
-    pending: {
-      phase: 5,
-      items: ['Carpeta de destino', 'Nombres automáticos', 'Archivos temporales y espacio libre']
-    }
+    pending: { phase: 5, groups: [{ title: 'Destino', controls: [C.outputFolder, C.fileName] }] }
   },
   {
     id: 'performance',
     label: 'Rendimiento',
     icon: Gauge,
-    pending: { phase: 4, items: ['Aceleración por hardware', 'Codificador preferido', 'Prioridad de proceso'] }
+    pending: { phase: 4, groups: [{ title: 'Codificación', controls: [C.hwAccel, C.encoder, C.priority] }] }
   },
   { id: 'appearance', label: 'Apariencia', icon: Palette }
 ]

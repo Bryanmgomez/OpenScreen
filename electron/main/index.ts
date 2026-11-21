@@ -1,5 +1,6 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import { join } from 'node:path'
+import { CaptureService } from '../services/capture/captureService'
 import { SettingsService } from '../services/settings/settingsService'
 import { registerIpcHandlers } from './ipc'
 import { applySessionSecurity, applyWebContentsHardening } from './security/session'
@@ -36,7 +37,25 @@ if (!app.requestSingleInstanceLock()) {
 
       const settings = new SettingsService(join(app.getPath('userData'), 'settings.json'))
       await settings.load()
-      registerIpcHandlers({ settings })
+      const capture = new CaptureService(settings)
+      registerIpcHandlers({ settings, capture })
+      capture.startWatching()
+      app.on('before-quit', () => capture.stopWatching())
+
+      /**
+       * `getDisplayMedia` no permite seleccionar fuente por `deviceId` (spec). El renderer
+       * pide un stream y main concede exactamente la fuente que el usuario eligió.
+       * Si la referencia caducó, se deniega en lugar de capturar otra cosa.
+       */
+      session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+        try {
+          const source = await capture.resolveSelectedSource()
+          callback(source ? { video: source } : null)
+        } catch {
+          callback(null)
+        }
+      })
+
       openMainWindow(settings)
 
       app.on('activate', () => {

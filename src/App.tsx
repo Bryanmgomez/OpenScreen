@@ -3,6 +3,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorScreen } from '@/components/ErrorScreen'
 import { AppShell } from '@/components/layout/AppShell'
 import { useApplyAppearance } from '@/hooks/useApplyAppearance'
+import { DesignGalleryPage } from '@/pages/DesignGalleryPage'
 import { HomePage } from '@/pages/HomePage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { RecordingPage } from '@/pages/RecordingPage'
@@ -33,6 +34,7 @@ export function App() {
           <Route path="recording" element={<RecordingPage />} />
           <Route path="library" element={<LibraryPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          {import.meta.env.DEV && <Route path="design" element={<DesignGalleryPage />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

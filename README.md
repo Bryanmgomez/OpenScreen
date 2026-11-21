@@ -3,7 +3,7 @@
 Grabador de pantalla de escritorio, moderno y de código abierto, construido con Electron, React, TypeScript y Vite.
 Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 
-> **Estado: Fase 1 (Fundación) completada.** La aplicación arranca, tiene interfaz, navegación, ajustes persistentes y un sistema IPC seguro, **pero todavía no graba**. La captura llega en la Fase 2. Ver [Hoja de ruta](#hoja-de-ruta).
+> **Estado: Fase 2 en curso (Sesión 03).** La aplicación detecta monitores y ventanas reales, permite seleccionar la fuente y mostrar vista previa, **pero todavía no graba**. La grabación llega en las siguientes sesiones. Ver [Hoja de ruta](#hoja-de-ruta).
 
 ## Qué funciona hoy
 
@@ -11,10 +11,14 @@ Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 - Interfaz en React con navegación: Inicio, Grabación, Grabaciones y Ajustes.
 - Tema oscuro (por defecto), claro y «sistema», y opción de reducir animaciones. Se guardan en disco y sobreviven a reinicios.
 - Información real del entorno (versiones, plataforma, carpeta de datos) obtenida del proceso main por IPC.
+- **Detección de fuentes reales**: monitores (resolución, DPI, frecuencia, principal) y ventanas, con miniatura e icono cuando el sistema los proporciona. La lista se actualiza al conectar pantallas y mediante sondeo de ventanas.
+- **Selección de fuente** persistida y revalidada: si la ventana o el monitor desaparece, la interfaz lo indica en lugar de grabar otra cosa.
+- **Vista previa real** de la fuente elegida (el mismo `MediaStream` que se usará al grabar).
+- Base de región personalizada (guardado de coordenadas; el recorte llega con el motor de grabación).
 - Seguridad de Electron aplicada (ver [docs/security.md](docs/security.md)).
-- Pruebas automáticas de ajustes, persistencia y seguridad.
+- Pruebas automáticas de ajustes, persistencia, seguridad y mapeo de fuentes.
 
-Lo que **no** existe todavía (y está marcado como tal en la propia interfaz): captura de pantalla, audio, codificación con FFmpeg, biblioteca de grabaciones y atajos.
+Lo que **no** existe todavía (y está marcado como tal en la propia interfaz): grabación de vídeo, audio, codificación con FFmpeg, biblioteca de grabaciones y atajos.
 
 ## Requisitos
 
@@ -70,7 +74,7 @@ Se añadió `shared/` respecto a la propuesta inicial: main, preload y renderer 
 | Fase | Contenido | Estado |
 | --- | --- | --- |
 | 1 | Fundación: proyecto, IPC, seguridad, interfaz base | ✅ Completada |
-| 2 | Captura: monitores, ventanas, región, vista previa, grabación básica | Siguiente |
+| 2 | Captura: monitores, ventanas, región, vista previa, grabación básica | En curso (detección y selección listas) |
 | 3 | Audio: micrófono, audio del sistema, dispositivos, pistas | Planificada |
 | 4 | Codificación: FFmpeg, formatos, calidad, aceleración por hardware | Planificada |
 | 5 | Gestión: biblioteca, reproducción, historial, ajustes completos | Planificada |
@@ -80,7 +84,7 @@ Se añadió `shared/` respecto a la propuesta inicial: main, preload y renderer 
 
 - Pruebas unitarias (`npm test`) y comprobación de tipos: pasan.
 - Compilación de producción: funciona.
-- Arranque real de la aplicación: verificado en **Linux (Xvfb)** durante el desarrollo de la Fase 1.
+- Arranque real de la aplicación: verificado en **Linux (Xvfb)** durante el desarrollo de la Fase 1. La detección de la Sesión 03 no se ha probado aún en Windows/macOS; las limitaciones de cada plataforma están documentadas en `electron/services/capture/README.md`.
 - **Windows: aún no verificado por el autor de esta fase.** Hay que ejecutar `npm run dev` y `npm run dist:win` en Windows antes de dar la Fase 1 por cerrada en esa plataforma.
 - Linux y macOS: no son objetivo de la primera versión; la arquitectura no lo impide.
 

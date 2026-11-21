@@ -18,5 +18,12 @@ export const IPC_CHANNELS = {
     get: 'settings:get',
     update: 'settings:update',
     changed: 'settings:changed'
+  },
+  capture: {
+    getSnapshot: 'capture:get-snapshot',
+    selectSource: 'capture:select-source',
+    setRegion: 'capture:set-region',
+    clearSelection: 'capture:clear-selection',
+    sourcesChanged: 'capture:sources-changed'
   }
 } as const
