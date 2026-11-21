@@ -19,6 +19,15 @@ import type {
   RecordingStorageInfo
 } from './recording'
 import type { Settings, SettingsPatch } from './settings'
+import type {
+  DiagnosticError,
+  DiagnosticsSnapshot,
+  HardwareInfo,
+  ResourceStatus,
+  ShortcutTriggerPayload,
+  ShortcutsStatus,
+  SystemCapabilities
+} from './system'
 
 /** Función que cancela una suscripción a un evento del proceso main. */
 export type Unsubscribe = () => void
@@ -99,5 +108,16 @@ export interface OpenScreenApi {
     /** Codificadores/tecnologías realmente detectados, nunca una lista supuesta. */
     getEncodingCapabilities(): Promise<EncodingCapabilities>
     onStatusChange(listener: (status: RecordingStatus) => void): Unsubscribe
+  }
+  /** Capacidades reales, atajos, diagnóstico y liberación de recursos. */
+  system: {
+    getCapabilities(): Promise<SystemCapabilities>
+    getHardwareInfo(): Promise<HardwareInfo>
+    getShortcutsStatus(): Promise<ShortcutsStatus>
+    getDiagnostics(): Promise<DiagnosticsSnapshot>
+    /** Libera cachés y procesos gestionados; devuelve el estado observado tras la liberación. */
+    releaseResources(): Promise<ResourceStatus>
+    onShortcutTriggered(listener: (payload: ShortcutTriggerPayload) => void): Unsubscribe
+    onError(listener: (error: DiagnosticError) => void): Unsubscribe
   }
 }

@@ -10,6 +10,7 @@ import { SettingRow } from '@/components/ui/SettingRow'
 import { StatusIndicator } from '@/components/ui/StatusIndicator'
 import { Switch } from '@/components/ui/Switch'
 import { getApi } from '@/services/ipc'
+import { startRecordingWithCurrentSettings } from '@/services/recordingActions'
 import { useAudioStore } from '@/store/audioStore'
 import { useCaptureStore } from '@/store/captureStore'
 import { useRecordingStore } from '@/store/recordingStore'
@@ -47,7 +48,6 @@ export function RecordingControls() {
     ffmpegAvailable,
     cursorHonored,
     planWarnings,
-    start,
     pause,
     resume,
     stop,
@@ -81,18 +81,7 @@ export function RecordingControls() {
   }
 
   const begin = async (): Promise<void> => {
-    if (!selection || !support) return
-    await start({
-      source: selection,
-      options: {
-        showCursor: recording.showCursor,
-        quality: recording.quality,
-        format: recording.format
-      },
-      preferences: recording,
-      audio: settings.audio,
-      support
-    })
+    await startRecordingWithCurrentSettings()
   }
 
   return (

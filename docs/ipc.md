@@ -42,6 +42,13 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
 | `recording:check-ffmpeg` | invoke | — | `boolean` |
 | `recording:get-encoding-capabilities` | invoke | — | `EncodingCapabilities` (formatos/códecs/aceleración probados; nunca inferidos) |
 | `recording:status-changed` | evento main → renderer | — | `RecordingStatus` |
+| `system:get-capabilities` | invoke | — | `SystemCapabilities` (soporte reales: login, bandeja, atajos, notificaciones, métricas) |
+| `system:get-hardware-info` | invoke | — | `HardwareInfo` (CPU, núcleos, memoria, pantallas y GPU detectados; `null` si no se puede consultar) |
+| `system:get-shortcuts-status` | invoke | — | `ShortcutsStatus` (registro real de cada acción) |
+| `system:get-diagnostics` | invoke | — | `DiagnosticsSnapshot` (errores, recursos, consumo y hardware) |
+| `system:release-resources` | invoke | — | `ResourceStatus` (contadores tras liberar cachés y procesos FFmpeg gestionados; nunca durante una grabación activa) |
+| `system:shortcut-triggered` | evento main → renderer | — | `ShortcutTriggerPayload` (`action`, `at`) |
+| `system:error-occurred` | evento main → renderer | — | `DiagnosticError` |
 
 ## Garantías
 
@@ -69,5 +76,14 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
    privado `openscreen-media://` se valida de nuevo en main antes de servir cualquier byte.
 13. `recording:cleanup-temp` elimina únicamente temporales gestionados huérfanos; nunca toca los
    de la sesión en curso. La interfaz pide el nombre exacto antes de borrar una grabación.
+14. Los ajustes se leen de disco con tolerancia campo por campo, pero `settings:update` usa un
+   parche zod estricto: una clave desconocida o un valor fuera de rango se rechaza sin escribir.
+   `schemaVersion: 2` conserva los ajustes válidos de versiones anteriores.
+15. Los atajos globales se normalizan y validan antes de guardarse: se rechazan teclas sueltas,
+   combinaciones reservadas y colisiones entre acciones. El registro real se consulta con
+   `system:get-shortcuts-status`; un conflicto del sistema se informa, nunca se oculta.
+16. Los canales `system:*` son de solo lectura excepto `system:release-resources`, que no termina
+   procesos multimedia si hay una grabación activa. Las capacidades no verificadas viajan como
+   `supported: false` con motivo, y las métricas no medidas como `null`.
 
 Para añadir un canal, sigue los pasos de [CONTRIBUTING.md](../CONTRIBUTING.md).

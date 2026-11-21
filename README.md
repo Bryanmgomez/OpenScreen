@@ -3,13 +3,16 @@
 Grabador de pantalla de escritorio, moderno y de código abierto, construido con Electron, React, TypeScript y Vite.
 Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 
-> **Estado: Fase 5 completada (Sesión 07).** La aplicación detecta fuentes reales, graba con audio y codificación verificada, y ofrece una biblioteca funcional para encontrar, reproducir y administrar las grabaciones. Ver [Hoja de ruta](#hoja-de-ruta).
+> **Estado: Fase 6 completada (Sesión 08).** La aplicación detecta fuentes reales, graba con audio y codificación verificada, ofrece una biblioteca funcional y conserva las preferencias del usuario. Incluye atajos globales, bandeja, idiomas, notificaciones y diagnóstico de recursos. Ver [Hoja de ruta](#hoja-de-ruta).
 
 ## Qué funciona hoy
 
 - Aplicación Electron con ventana sin marco y barra de título propia (minimizar, maximizar/restaurar, cerrar).
 - Interfaz en React con navegación: Inicio, Grabación, Grabaciones y Ajustes.
-- Tema oscuro (por defecto), claro y «sistema», y opción de reducir animaciones. Se guardan en disco y sobreviven a reinicios.
+- Tema oscuro (por defecto), claro y «sistema», y opción de reducir animaciones. Se guardan en disco, sobreviven a reinicios y se sincronizan con el tema nativo de Electron.
+- **Preferencias completas**: idioma español/inglés (navegación y ajustes; el resto de textos permanecen en español), página de inicio, inicio minimizado, inicio con el sistema (solo app instalada en Windows/macOS), Minimizar al cerrar con bandeja y notificaciones configurables.
+- **Atajos globales configurables** para iniciar, pausar, reanudar, detener y silenciar el micrófono. Normalizan alias, rechazan combinaciones reservadas y colisiones internas, e informan si el sistema u otra aplicación se queda con la combinación.
+- **Rendimiento y estabilidad** con detección de capacidades y hardware reales, muestreo de CPU/memoria, historial acotado de errores, contadores de archivos/temporales/procesos multimedia y liberación manual de recursos.
 - Información real del entorno (versiones, plataforma, carpeta de datos) obtenida del proceso main por IPC.
 - **Detección de fuentes reales**: monitores (resolución, DPI, frecuencia, principal) y ventanas, con miniatura e icono cuando el sistema los proporciona. La lista se actualiza al conectar pantallas y mediante sondeo de ventanas.
 - **Selección de fuente** persistida y revalidada: si la ventana o el monitor desaparece, la interfaz lo indica en lugar de grabar otra cosa.
@@ -21,7 +24,7 @@ Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 - Seguridad de Electron aplicada (ver [docs/security.md](docs/security.md)).
 - Pruebas automáticas de ajustes, persistencia, seguridad, mapeo de fuentes, modelo de grabación y servicio de grabación con archivos reales.
 
-Lo que **no** existe todavía (y se indica en la interfaz): recorte efectivo de región, atajos globales y distribución. La aceleración por hardware y los formatos MP4/MKV solo se ofrecen si FFmpeg y la combinación elegida pasan una prueba real; FFmpeg no se distribuye con la aplicación. El audio automático del sistema está verificado solo en Windows; macOS/Linux requieren un dispositivo virtual elegido por el usuario.
+Lo que **no** existe todavía (y se indica en la interfaz): recorte efectivo de región y distribución (instaladores y lanzamientos). Los atajos globales sí funcionan donde Electron puede registrarlos; el sistema puede reclamar una combinación o pedir permisos de accesibilidad, y en ese caso la interfaz lo muestra como «No registrado» en lugar de fingir que está activo. La aceleración por hardware y los formatos MP4/MKV solo se ofrecen si FFmpeg y la combinación elegida pasan una prueba real; FFmpeg no se distribuye con la aplicación. El audio automático del sistema está verificado solo en Windows; macOS/Linux requieren un dispositivo virtual elegido por el usuario.
 
 ## Requisitos
 
@@ -61,7 +64,7 @@ OpenScreen/
 │   │   ├── ipc/
 │   │   └── security/
 │   ├── preload/         # Puente contextBridge → window.openscreen
-│   └── services/        # Servicios por dominio (capture, audio, recording, encoding, storage, settings)
+│   └── services/        # Servicios por dominio (capture, audio, recording, encoding, storage, settings, system)
 ├── shared/              # Contratos compartidos: canales IPC, esquemas zod, tipos de la API
 ├── src/                 # Renderer (React)
 │   ├── components/  pages/  hooks/  services/  store/  types/  utils/  styles/
@@ -81,11 +84,13 @@ Se añadió `shared/` respecto a la propuesta inicial: main, preload y renderer 
 | 3 | Audio: micrófono, audio del sistema, dispositivos, pistas | ✅ Completada (Sesión 05) |
 | 4 | Codificación: FFmpeg, formatos, calidad, aceleración por hardware | ✅ Completada con capacidades verificadas (Sesión 06) |
 | 5 | Gestión: biblioteca, reproducción, historial, ajustes completos | ✅ Completada (Sesión 07) |
-| 6 | Distribución: instaladores, GitHub Releases, pruebas multiplataforma | Siguiente |
+| 6 | Configuración y rendimiento: preferencias, atajos, idiomas, bandeja y diagnóstico | ✅ Completada (Sesión 08) |
+| 7 | Distribución: instaladores, GitHub Releases, pruebas multiplataforma | Siguiente |
 
 ## Estado de las pruebas
 
-- Pruebas unitarias y de integración (`npm test`, **80 pruebas en 13 archivos**), comprobación de tipos y compilación de producción: pasan.
+- Pruebas unitarias y de integración (`npm test`, **96 pruebas en 15 archivos**), comprobación de tipos y compilación de producción: pasan.
+- Las integraciones de Electron (bandeja, registro real de atajos, inicio con el sistema y notificaciones) no se simulan en las pruebas: solo se activan en la aplicación empaquetada y su disponibilidad se consulta en tiempo de ejecución.
 - **Prueba real de grabación (Sesión 04, Windows):** se arrancó la app compilada con Electron 45, se seleccionó un monitor real, se grabó con pausa/reanudación y se obtuvo un WebM válido (cabecera EBML `1a45dfa3`) en la carpeta configurada.
 - **Prueba real de audio (Sesión 05):** se capturaron micrófono y loopback del sistema con pistas Opus independientes y se decodificaron; el tono de 440 Hz se registró con RMS 0,081.
 - **Prueba real de codificación (Sesión 06):** WebM VP9 1280×720, 24 fps aplicados y 23,7 fps medidos; un plan a 60 fps informó 39,6 fps medidos y la interfaz lo mostró como diferencia, no como logro.

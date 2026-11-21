@@ -1,17 +1,20 @@
-import { app, BrowserWindow, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, session, shell } from 'electron'
 import { join } from 'node:path'
 import { AudioService } from '../services/audio/audioService'
 import { resolveSystemAudioGrant } from '../services/audio/model'
+import type { Settings } from '../../shared/settings'
 import { CaptureService } from '../services/capture/captureService'
 import { FfmpegService } from '../services/recording/ffmpegService'
 import { RecordingService } from '../services/recording/recordingService'
 import { SettingsService } from '../services/settings/settingsService'
+import { SystemService } from '../services/system/systemService'
 import { registerIpcHandlers } from './ipc'
 import {
   registerRecordingMediaProtocol,
   registerRecordingMediaScheme
 } from './mediaProtocol'
 import { applySessionSecurity, applyWebContentsHardening } from './security/session'
+import { createTrayIcon } from './trayIcon'
 import { createMainWindow } from './window'
 
 // Debe fijarse antes de `ready`: determina la carpeta de datos del usuario (userData)
@@ -25,18 +28,36 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   let mainWindow: BrowserWindow | null = null
   let quitting = false
+  let initialWindowShown = false
 
-  const openMainWindow = (settings: SettingsService): void => {
-    mainWindow = createMainWindow(settings.get())
+  const showMainWindow = (settings: SettingsService): void => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+      return
+    }
+    mainWindow = createMainWindow(settings.get(), {
+      startMinimized: !initialWindowShown && settings.get().general.startMinimized
+    })
+    initialWindowShown = true
     mainWindow.on('closed', () => {
       mainWindow = null
     })
+    mainWindow.on('close', (event) => {
+      if (quitting) return
+      if (!settings.get().general.minimizeOnClose) return
+      event.preventDefault()
+      mainWindow?.hide()
+    })
   }
 
+  // Se asigna dentro de `whenReady`; `second-instance` puede llegar antes de que termine.
+  let readySettings: SettingsService | null = null
+
   app.on('second-instance', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+    const settings = readySettings
+    if (settings) showMainWindow(settings)
   })
 
   applyWebContentsHardening()
@@ -48,6 +69,7 @@ if (!app.requestSingleInstanceLock()) {
 
       const settings = new SettingsService(join(app.getPath('userData'), 'settings.json'))
       await settings.load()
+      readySettings = settings
       const audioService = new AudioService()
       const capture = new CaptureService(settings)
       const ffmpeg = new FfmpegService(() => settings.get().recording.ffmpegPath)
@@ -62,15 +84,55 @@ if (!app.requestSingleInstanceLock()) {
           void shell.openPath(path)
         }
       })
-      registerIpcHandlers({ settings, audio: audioService, capture, recording })
+      const system = new SystemService({
+        settings,
+        getResourceCounts: () => ({
+          ...recording.getResourceCounts(),
+          activeFfmpegProcesses: ffmpeg.activeProcessCount
+        }),
+        terminateManagedMediaProcesses: () => {
+          ffmpeg.terminateProcesses()
+        },
+        getTrayIcon: () => createTrayIcon(),
+        onTrayShow: () => showMainWindow(settings),
+        // `before-quit` es el único lugar que marca `quitting` y ejecuta la limpieza.
+        onTrayQuit: () => app.quit()
+      })
+      system.installErrorHandlers()
+      system.applySettings(settings.get())
+      const trayRequired = (value: Settings): boolean =>
+        value.general.minimizeOnClose || value.general.startMinimized
+      let lastTrayRequired = trayRequired(settings.get())
+      settings.onChange((next) => {
+        system.applySettings(next)
+        // Sin bandeja, una ventana oculta quedaría inaccesible: la mostramos al desactivar
+        // la preferencia que la mantenía oculta.
+        if (lastTrayRequired && !trayRequired(next) && mainWindow?.isVisible() === false) {
+          mainWindow.show()
+        }
+        lastTrayRequired = trayRequired(next)
+      })
+
+      registerIpcHandlers({ settings, audio: audioService, capture, recording, system })
       registerRecordingMediaProtocol(() => recording.getOutputDir())
       capture.startWatching()
+
+      // Aviso real solo cuando una grabación termina; se ignora el `lastRecording` restaurado.
+      let notifiedPath = recording.getStatus().lastRecording?.path ?? null
+      recording.onStatusChange((status) => {
+        if (status.state !== 'idle' || !status.lastRecording) return
+        if (status.lastRecording.path === notifiedPath) return
+        notifiedPath = status.lastRecording.path
+        system.notifyCompletion('Grabación completada', status.lastRecording.name)
+      })
+
       app.on('before-quit', (event) => {
         if (quitting) return
-        // La finalización del archivo es asíncrona: hay que esperarla antes de salir.
         event.preventDefault()
         quitting = true
         capture.stopWatching()
+        system.dispose()
+        ffmpeg.terminateProcesses()
         void recording.dispose().finally(() => {
           app.quit()
         })
@@ -101,14 +163,18 @@ if (!app.requestSingleInstanceLock()) {
         }
       })
 
-      openMainWindow(settings)
+      showMainWindow(settings)
 
       app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) openMainWindow(settings)
+        showMainWindow(settings)
       })
     })
     .catch((error: unknown) => {
       console.error('[OpenScreen] Error fatal al iniciar:', error)
+      void dialog.showErrorBox(
+        'OpenScreen',
+        error instanceof Error ? error.message : 'No se pudo iniciar la aplicación.'
+      )
       app.exit(1)
     })
 

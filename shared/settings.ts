@@ -6,6 +6,10 @@ import {
 } from './audio'
 import { captureRegionSchema, sourceRefSchema } from './capture'
 import {
+  DEFAULT_SHORTCUT_SETTINGS,
+  shortcutSettingsSchema
+} from './shortcuts'
+import {
   ffmpegPresetSchema,
   hardwareAccelerationSchema,
   recordingFpsSchema,
@@ -92,22 +96,86 @@ const recordingSettingsSchema = z
   })
   .catch(DEFAULT_RECORDING_SETTINGS)
 
+export const LANGUAGES = ['es', 'en'] as const
+export const languageSchema = z.enum(LANGUAGES)
+export type Language = z.infer<typeof languageSchema>
+
+export const START_PAGES = ['home', 'record', 'library', 'settings'] as const
+export const startupPageSchema = z.enum(START_PAGES)
+export type StartupPage = z.infer<typeof startupPageSchema>
+
+const notificationSettingsSchema = z
+  .object({
+    enabled: z.boolean().catch(true),
+    recordingComplete: z.boolean().catch(true),
+    errors: z.boolean().catch(true)
+  })
+  .strict()
+
+export const DEFAULT_NOTIFICATION_SETTINGS = {
+  enabled: true,
+  recordingComplete: true,
+  errors: true
+}
+
+export const generalSettingsSchema = z
+  .object({
+    /** Solo se aplica en la app instalada y en plataformas donde Electron lo soporte. */
+    startAtLogin: z.boolean().catch(false),
+    startMinimized: z.boolean().catch(false),
+    minimizeOnClose: z.boolean().catch(false),
+    language: languageSchema.catch('es'),
+    startupPage: startupPageSchema.catch('home'),
+    notifications: notificationSettingsSchema.catch({ ...DEFAULT_NOTIFICATION_SETTINGS })
+  })
+  .strict()
+
+export const DEFAULT_GENERAL_SETTINGS = {
+  startAtLogin: false,
+  startMinimized: false,
+  minimizeOnClose: false,
+  language: 'es' as Language,
+  startupPage: 'home' as StartupPage,
+  notifications: { ...DEFAULT_NOTIFICATION_SETTINGS }
+}
+
+export const performanceSettingsSchema = z
+  .object({
+    /** Aviso de espacio libre; nunca borra grabaciones del usuario automáticamente. */
+    storageWarningGb: z.number().min(0.5).max(100).catch(2),
+    thumbnailCacheLimit: z.number().int().min(8).max(100).catch(24),
+    errorHistoryLimit: z.number().int().min(10).max(200).catch(50)
+  })
+  .strict()
+
+export const DEFAULT_PERFORMANCE_SETTINGS = {
+  storageWarningGb: 2,
+  thumbnailCacheLimit: 24,
+  errorHistoryLimit: 50
+}
+
 export const settingsSchema = z.object({
-  schemaVersion: z.literal(1).catch(1),
+  schemaVersion: z.literal(2).catch(2),
   appearance: appearanceSchema.catch({ theme: 'dark', reduceMotion: false }),
+  general: generalSettingsSchema.catch(structuredClone(DEFAULT_GENERAL_SETTINGS)),
   capture: captureSettingsSchema,
   recording: recordingSettingsSchema,
-  audio: audioSettingsSchema.catch(structuredClone(DEFAULT_AUDIO_SETTINGS))
+  audio: audioSettingsSchema.catch(structuredClone(DEFAULT_AUDIO_SETTINGS)),
+  shortcuts: shortcutSettingsSchema.catch(structuredClone(DEFAULT_SHORTCUT_SETTINGS)),
+  performance: performanceSettingsSchema.catch(structuredClone(DEFAULT_PERFORMANCE_SETTINGS))
 })
 
 export type Settings = z.infer<typeof settingsSchema>
 
 export const DEFAULT_SETTINGS: Settings = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   appearance: { theme: 'dark', reduceMotion: false },
+  general: structuredClone(DEFAULT_GENERAL_SETTINGS),
   capture: { source: null, region: null },
   recording: { ...DEFAULT_RECORDING_SETTINGS },
-  audio: structuredClone(DEFAULT_AUDIO_SETTINGS)
+  audio: structuredClone(DEFAULT_AUDIO_SETTINGS),
+  shortcuts: structuredClone(DEFAULT_SHORTCUT_SETTINGS),
+  performance: structuredClone(DEFAULT_PERFORMANCE_SETTINGS)
 }
 
 /** Actualización parcial recibida por IPC. Estricta: no admite claves desconocidas. */
@@ -117,6 +185,17 @@ export const settingsPatchSchema = z
       .object({
         theme: themeSchema.optional(),
         reduceMotion: z.boolean().optional()
+      })
+      .strict()
+      .optional(),
+    general: z
+      .object({
+        startAtLogin: z.boolean().optional(),
+        startMinimized: z.boolean().optional(),
+        minimizeOnClose: z.boolean().optional(),
+        language: languageSchema.optional(),
+        startupPage: startupPageSchema.optional(),
+        notifications: notificationSettingsSchema.partial().optional()
       })
       .strict()
       .optional(),
@@ -155,6 +234,15 @@ export const settingsPatchSchema = z
         separateTracks: z.boolean().optional()
       })
       .strict()
+      .optional(),
+    shortcuts: shortcutSettingsSchema.optional(),
+    performance: z
+      .object({
+        storageWarningGb: z.number().min(0.5).max(100).optional(),
+        thumbnailCacheLimit: z.number().int().min(8).max(100).optional(),
+        errorHistoryLimit: z.number().int().min(10).max(200).optional()
+      })
+      .strict()
       .optional()
   })
   .strict()
@@ -173,6 +261,17 @@ export function mergeSettings(current: Settings, patch: SettingsPatch): Settings
     appearance: {
       theme: patch.appearance?.theme ?? current.appearance.theme,
       reduceMotion: patch.appearance?.reduceMotion ?? current.appearance.reduceMotion
+    },
+    general: {
+      startAtLogin: patch.general?.startAtLogin ?? current.general.startAtLogin,
+      startMinimized: patch.general?.startMinimized ?? current.general.startMinimized,
+      minimizeOnClose: patch.general?.minimizeOnClose ?? current.general.minimizeOnClose,
+      language: patch.general?.language ?? current.general.language,
+      startupPage: patch.general?.startupPage ?? current.general.startupPage,
+      notifications: {
+        ...current.general.notifications,
+        ...patch.general?.notifications
+      }
     },
     capture: {
       source: patch.capture?.source !== undefined ? patch.capture.source : current.capture.source,
@@ -239,6 +338,11 @@ export function mergeSettings(current: Settings, patch: SettingsPatch): Settings
         ...patch.audio?.system
       },
       separateTracks: patch.audio?.separateTracks ?? current.audio.separateTracks
+    },
+    shortcuts: patch.shortcuts ?? current.shortcuts,
+    performance: {
+      ...current.performance,
+      ...patch.performance
     }
   }
 }

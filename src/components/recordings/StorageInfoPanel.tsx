@@ -11,6 +11,8 @@ interface StorageInfoPanelProps {
   busy: boolean
   onCleanup: () => void
   showChangeLink?: boolean
+  /** Umbral configurado por el usuario; solo se compara si el sistema dio un valor real. */
+  warningGb?: number
 }
 
 /** Estado real de la carpeta configurada y gestión de temporales huérfanos. */
@@ -19,9 +21,14 @@ export function StorageInfoPanel({
   tempFiles,
   busy,
   onCleanup,
-  showChangeLink = true
+  showChangeLink = true,
+  warningGb
 }: StorageInfoPanelProps) {
   const available = storage?.available ?? false
+  const warningBytes =
+    warningGb !== undefined && Number.isFinite(warningGb) ? warningGb * 1024 ** 3 : null
+  const freeBytes = storage?.freeBytes ?? null
+  const lowSpace = warningBytes !== null && freeBytes !== null && freeBytes < warningBytes
   return (
     <section className="storage-panel" aria-label="Almacenamiento de grabaciones">
       <div className="storage-panel__main">
@@ -39,6 +46,11 @@ export function StorageInfoPanel({
           {storage?.outputDir ?? 'Comprobando…'}
         </p>
         {storage?.reason && <p className="notice notice--error">{storage.reason}</p>}
+        {lowSpace && (
+          <p className="notice">
+            Quedan menos de {warningGb} GB libres. OpenScreen no borra grabaciones automáticamente.
+          </p>
+        )}
       </div>
       <div className="storage-panel__side">
         <span className="badge" title="Espacio libre estimado por el sistema de archivos">

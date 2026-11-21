@@ -9,43 +9,22 @@ import {
   Video,
   type LucideIcon
 } from 'lucide-react'
-
-import { PENDING_CONTROLS, type PendingControlDef } from '@/utils/pendingControls'
-
-const C = PENDING_CONTROLS
-
-/** Grupo de controles pendientes dentro de una categoría. */
-export interface PendingGroup {
-  title: string
-  controls: readonly PendingControlDef[]
-}
+import type { MessageKey } from '@/i18n'
 
 export interface SettingsSectionDef {
   id: string
-  label: string
+  labelKey: MessageKey
   icon: LucideIcon
-  /** Ausente = la sección ya es funcional. */
-  pending?: { phase: number; groups: readonly PendingGroup[] }
 }
 
-/** Categorías de ajustes definidas en el plan del proyecto. */
+/** Categorías de ajustes. Todas las secciones listadas son funcionales. */
 export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
-  { id: 'general', label: 'General', icon: SlidersHorizontal },
-  {
-    id: 'capture',
-    label: 'Captura',
-    icon: Monitor,
-    pending: { phase: 2, groups: [{ title: 'Fuente', controls: [C.captureType, C.captureSource] }] }
-  },
-  { id: 'video', label: 'Video', icon: Video },
-  { id: 'audio', label: 'Audio', icon: Mic },
-  {
-    id: 'shortcuts',
-    label: 'Atajos',
-    icon: Keyboard,
-    pending: { phase: 2, groups: [{ title: 'Atajos globales', controls: [C.shortcutStart, C.shortcutPause, C.shortcutMute] }] }
-  },
-  { id: 'storage', label: 'Almacenamiento', icon: HardDrive },
-  { id: 'performance', label: 'Rendimiento', icon: Gauge },
-  { id: 'appearance', label: 'Apariencia', icon: Palette }
+  { id: 'general', labelKey: 'settings.sections.general', icon: SlidersHorizontal },
+  { id: 'capture', labelKey: 'settings.sections.capture', icon: Monitor },
+  { id: 'video', labelKey: 'settings.sections.video', icon: Video },
+  { id: 'audio', labelKey: 'settings.sections.audio', icon: Mic },
+  { id: 'shortcuts', labelKey: 'settings.sections.shortcuts', icon: Keyboard },
+  { id: 'storage', labelKey: 'settings.sections.storage', icon: HardDrive },
+  { id: 'performance', labelKey: 'settings.sections.performance', icon: Gauge },
+  { id: 'appearance', labelKey: 'settings.sections.appearance', icon: Palette }
 ]

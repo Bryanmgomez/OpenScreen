@@ -67,6 +67,15 @@ const api: OpenScreenApi = {
     getEncodingCapabilities: () =>
       ipcRenderer.invoke(IPC_CHANNELS.recording.getEncodingCapabilities),
     onStatusChange: (listener) => subscribe(IPC_CHANNELS.recording.statusChanged, listener)
+  },
+  system: {
+    getCapabilities: () => ipcRenderer.invoke(IPC_CHANNELS.system.getCapabilities),
+    getHardwareInfo: () => ipcRenderer.invoke(IPC_CHANNELS.system.getHardwareInfo),
+    getShortcutsStatus: () => ipcRenderer.invoke(IPC_CHANNELS.system.getShortcutsStatus),
+    getDiagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.system.getDiagnostics),
+    releaseResources: () => ipcRenderer.invoke(IPC_CHANNELS.system.releaseResources),
+    onShortcutTriggered: (listener) => subscribe(IPC_CHANNELS.system.shortcutTriggered, listener),
+    onError: (listener) => subscribe(IPC_CHANNELS.system.errorOccurred, listener)
   }
 }
 

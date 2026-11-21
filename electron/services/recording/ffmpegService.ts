@@ -1,4 +1,8 @@
-import { spawn, type SpawnOptionsWithoutStdio } from 'node:child_process'
+import {
+  spawn,
+  type ChildProcess,
+  type SpawnOptionsWithoutStdio
+} from 'node:child_process'
 import type { EncodingCapabilities } from '../../../shared/encoding'
 import { probeFfmpegCapabilities } from './encodingProbe'
 import { buildFfmpegArgs, type FfmpegArgsOptions } from './model'
@@ -18,10 +22,13 @@ export type FfmpegTranscodeOptions = FfmpegArgsOptions
 export class FfmpegService {
   private capabilities: Promise<EncodingCapabilities> | null = null
   private cachedBinary: string | null = null
+  private readonly active = new Set<ChildProcess>()
 
   constructor(
     private readonly resolveBinary: () => string | null,
-    private readonly spawnFn: SpawnFn = spawn
+    private readonly spawnFn: SpawnFn = spawn,
+    /** Tiempo máximo de una transcodificación; evita procesos huérfanos. */
+    private readonly transcodeTimeoutMs = 900_000
   ) {}
 
   get binary(): string {
@@ -57,7 +64,24 @@ export class FfmpegService {
   async transcode(options: FfmpegTranscodeOptions): Promise<void> {
     const args = buildFfmpegArgs(options)
     if (args.length === 0) return
-    await this.execute(args)
+    await this.execute(args, this.transcodeTimeoutMs)
+  }
+
+  get activeProcessCount(): number {
+    return this.active.size
+  }
+
+  /** Termina los procesos FFmpeg que sigan vivos. Solo se llama al liberar recursos/salir. */
+  terminateProcesses(): number {
+    let terminated = 0
+    for (const child of this.active) {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill()
+        terminated += 1
+      }
+    }
+    this.active.clear()
+    return terminated
   }
 
   private execute(
@@ -66,6 +90,7 @@ export class FfmpegService {
   ): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
       const child = this.spawnFn(this.binary, args, { windowsHide: true })
+      this.active.add(child)
       let stdout = ''
       let stderr = ''
       let settled = false
@@ -74,6 +99,7 @@ export class FfmpegService {
       const settle = (error?: Error): void => {
         if (settled) return
         settled = true
+        this.active.delete(child)
         if (timer) clearTimeout(timer)
         if (error) reject(error)
         else resolve({ stdout, stderr })

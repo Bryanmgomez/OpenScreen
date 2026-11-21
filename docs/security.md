@@ -1,6 +1,6 @@
 # Seguridad
 
-Medidas aplicadas hasta la Fase 5 (Sesión 07) y dónde viven.
+Medidas aplicadas hasta la Fase 6 (Sesión 08) y dónde viven.
 
 | Medida | Dónde |
 | --- | --- |
@@ -20,6 +20,12 @@ Medidas aplicadas hasta la Fase 5 (Sesión 07) y dónde viven.
 | Esquema privado `openscreen-media://` validado en main antes de servir bytes | `main/mediaProtocol.ts` |
 | Renombrado atómico con reversión y borrado limitado a rutas canónicas | `services/recording/recordingService.ts` |
 | Limpieza solo de temporales gestionados huérfanos | `services/recording/recordingService.ts` |
+| Ajustes v2: lectura tolerante campo por campo y parche IPC estricto con zod | `shared/settings.ts`, `services/settings/settingsService.ts` |
+| Atajos globales normalizados: sin teclas sueltas, combinaciones reservadas ni colisiones internas | `shared/shortcuts.ts`, `services/system/systemService.ts` |
+| Inicio con el sistema restringido a la app empaquetada en Windows/macOS | `services/system/systemService.ts` |
+| Bandeja creada solo si mantiene una ventana oculta; «Salir» pasa por `before-quit` | `main/index.ts`, `services/system/systemService.ts` |
+| Diagnóstico de solo lectura; liberación de recursos bloqueada durante grabaciones activas | `main/ipc/systemHandlers.ts`, `services/system/systemService.ts` |
+| Historial de errores acotado y notificaciones supeditadas al ajuste del usuario | `services/system/systemService.ts` |
 
 ## CSP de producción
 
@@ -48,12 +54,28 @@ y existencia en cada petición, y responde con CORS únicamente para permitir el
 - La biblioteca solo muestra metadatos validados: lo que no se pudo comprobar viaja como `null` y
   se etiqueta como desconocido. El borrado requiere escribir el nombre exacto y el renombrado se
   revierte por completo si falla alguno de sus pasos.
+- Los ajustes persistidos se reconstruyen con valores por defecto por campo; un archivo corrupto o
+  antiguo no impide iniciar la aplicación. En cambio, un `settings:update` con claves desconocidas
+  o valores fuera de rango se rechaza antes de escribir.
+- Los atajos globales se validan en `shared/shortcuts.ts` antes de persistirse. Electron informa
+  del registro real: si el sistema u otra aplicación se queda con la combinación, la interfaz lo
+  muestra como no registrado en lugar de activar una acción que no funcionaría.
+- `system:release-resources` solo libera cachés y termina procesos FFmpeg gestionados cuando no hay
+  grabación activa. El resto de los canales `system:*` son de solo lectura. Las capacidades y
+  métricas no medidas viajan como `supported: false` o `null`, nunca como valores estimados.
+- Las notificaciones de finalización y error respetan los ajustes del usuario y la disponibilidad
+  real de Electron. El historial de errores está acotado para no convertir un fallo repetido en un
+  consumo de memoria creciente.
 
 ## Limitaciones conocidas
 
 - Un renderer comprometido aún podría invocar los canales IPC existentes; por eso cada canal valida sus datos y expone solo la operación necesaria. En particular no puede pedir una fuente arbitraria: solo seleccionar una de las enumeradas por main.
 - Mediante `recording:get-media-url` solo puede solicitar contenedores terminados dentro de la carpeta configurada; main vuelve a validar la URL y la ruta en cada petición de bytes. No hay acceso a `file://` arbitrario.
-- No hay firma de código ni actualizaciones automáticas todavía (Fase 6).
+- Los atajos globales dependen de permisos del sistema (en macOS, Accesibilidad) y de que otra
+  aplicación no haya reclamado la combinación; no se pueden garantizar desde la app.
+- El inicio con el sistema solo se aplica a la aplicación instalada en Windows/macOS. En
+  desarrollo o en Linux se informa del motivo y el control queda deshabilitado.
+- No hay firma de código ni actualizaciones automáticas todavía (Fase 7).
 
 ## Reportar vulnerabilidades
 

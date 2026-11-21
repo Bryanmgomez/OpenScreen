@@ -51,5 +51,14 @@ export const IPC_CHANNELS = {
     checkFfmpeg: 'recording:check-ffmpeg',
     getEncodingCapabilities: 'recording:get-encoding-capabilities',
     statusChanged: 'recording:status-changed'
+  },
+  system: {
+    getCapabilities: 'system:get-capabilities',
+    getHardwareInfo: 'system:get-hardware-info',
+    getShortcutsStatus: 'system:get-shortcuts-status',
+    getDiagnostics: 'system:get-diagnostics',
+    releaseResources: 'system:release-resources',
+    shortcutTriggered: 'system:shortcut-triggered',
+    errorOccurred: 'system:error-occurred'
   }
 } as const

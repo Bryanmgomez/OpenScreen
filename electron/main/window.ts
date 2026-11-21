@@ -12,7 +12,10 @@ function initialBackground(theme: Settings['appearance']['theme']): string {
   return dark ? BACKGROUND.dark : BACKGROUND.light
 }
 
-export function createMainWindow(settings: Settings): BrowserWindow {
+export function createMainWindow(
+  settings: Settings,
+  options: { startMinimized?: boolean } = {}
+): BrowserWindow {
   const win = new BrowserWindow({
     width: 1180,
     height: 760,
@@ -34,7 +37,7 @@ export function createMainWindow(settings: Settings): BrowserWindow {
     }
   })
 
-  win.once('ready-to-show', () => win.show())
+  if (!options.startMinimized) win.once('ready-to-show', () => win.show())
 
   const notifyMaximized = (maximized: boolean): void => {
     if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.window.maximizedChanged, maximized)

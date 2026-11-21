@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { Select } from '@/components/ui/Select'
 import { useRecordings } from '@/hooks/useRecordings'
+import { useSettingsStore } from '@/store/settingsStore'
 
 export function LibraryPage() {
   const {
@@ -33,6 +34,7 @@ export function LibraryPage() {
     cleanupTemp,
     getMediaUrl
   } = useRecordings()
+  const storageWarningGb = useSettingsStore((state) => state.settings?.performance.storageWarningGb)
 
   const [query, setQuery] = useState('')
   const [format, setFormat] = useState<RecordingFormat | 'all'>('all')
@@ -91,6 +93,7 @@ export function LibraryPage() {
         tempFiles={tempFiles}
         busy={busy}
         onCleanup={() => void cleanupTemp()}
+        warningGb={storageWarningGb}
       />
 
       <div className="toolbar toolbar--library">

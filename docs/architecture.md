@@ -29,6 +29,7 @@
 | `audio` | Implementado: pistas reales, permisos y loopback de Windows verificado (Sesión 05) | 3 |
 | `encoding` | Implementado: planes y capacidades probadas, FFmpeg con arrays de args (Sesión 06) | 4 |
 | `storage` | Implementado: metadatos, miniaturas, reproducción y administración de archivos (Sesión 07) | 5 |
+| `system` | Implementado: preferencias de arranque, bandeja, atajos globales, notificaciones y diagnóstico (Sesión 08) | 6 |
 
 Los servicios no dependen directamente de Electron cuando es posible (p. ej. `SettingsService` recibe la ruta del archivo), lo que permite probarlos de forma aislada.
 
@@ -47,13 +48,13 @@ En producción la interfaz se carga desde `file://`, donde el enrutado por histo
 El store de Zustand en el renderer solo refleja lo que main confirma. Main valida cada actualización con zod y notifica a todas las ventanas.
 
 ### Ventana sin marco
-La barra de título es propia para lograr un diseño coherente. Está pensada para Windows; en macOS habrá que revisar los controles de ventana (Fase 6).
+La barra de título es propia para lograr un diseño coherente. Está pensada para Windows; los controles de ventana de macOS se revisarán con la distribución multiplataforma (Fase 7).
 
 ### Zustand + CSS propio
 Se evitó una librería de componentes o Tailwind para no sumar dependencias. Los tokens de diseño están como variables CSS en `src/styles/global.css`.
 
 ### Sin icono de aplicación todavía
-`electron-builder` usará el icono por defecto de Electron hasta que se añada `resources/icons/icon.ico` (Fase 6). El logotipo actual (`resources/icons/logo.svg`) es provisional.
+`electron-builder` usará el icono por defecto de Electron hasta que se añada `resources/icons/icon.ico` (Fase 7). El logotipo actual (`resources/icons/logo.svg`) es provisional. La bandeja usa un PNG de 16×16 generado en `main/trayIcon.ts`, sin recursos externos.
 
 ## Cómo encajarán las fases siguientes
 
@@ -63,11 +64,14 @@ Se evitó una librería de componentes o Tailwind para no sumar dependencias. Lo
   con arreglos de argumentos. La calidad, resolución, FPS, formato, códec y aceleración se deciden
   con capacidades detectadas y probadas; nunca con listas supuestas. WebM sigue siendo la ruta
   nativa sin dependencias. Las opciones no verificadas aparecen deshabilitadas y con el motivo.
+- **Configuración y rendimiento (6, completada en la Sesión 08):** las preferencias se amplían con
+  arranque, idioma, atajos, notificaciones y diagnóstico. Main aplica los efectos del sistema y el
+  renderer refleja el estado real; nada se activa si la plataforma o el permiso no lo permiten.
 
 ## Interfaz (Sesión 02)
 
-- **Componentes reutilizables** en `src/components/ui`: `Button`, `IconButton`, `Select`, `Switch`, `SegmentedControl`, `Card`, `Panel`, `Modal` (sobre `<dialog>` nativo), `StatusIndicator`, `PendingTag`, `SideNav` (por rutas o por estado) y `PendingControl`.
-- **Controles pendientes**: `src/utils/pendingControls.ts` es el catálogo de controles sin backend. Se muestran deshabilitados, sin valor y con la etiqueta «Pendiente · Fase N». Al implementar una fase, el control se retira del catálogo y se conecta a su ajuste real.
+- **Componentes reutilizables** en `src/components/ui`: `Button`, `IconButton`, `Select`, `Switch`, `SegmentedControl`, `Card`, `Panel`, `Modal` (sobre `<dialog>` nativo), `StatusIndicator`, `Badge`, `EmptyState` y `SideNav` (por rutas o por estado).
+- **Sin controles ficticios**: el antiguo catálogo de controles pendientes se retiró al conectar cada ajuste. Una opción no verificada aparece deshabilitada y con el motivo real, nunca con un valor inventado.
 - **Grabaciones**: `useRecordings()` expone los archivos reales devueltos por `recording:list`; en la Sesión 07 añade miniaturas, metadatos verificados, URL de reproducción y acciones de renombrado y limpieza.
 - **Galería** (`/#/design`): solo existe con `npm run dev`. Sus datos son de ejemplo y no aparecen en producción.
 - El panel de Inicio sustituye a las tarjetas de «funciones planificadas»; la hoja de ruta pasó a Ajustes > General.
@@ -96,8 +100,8 @@ Se evitó una librería de componentes o Tailwind para no sumar dependencias. Lo
   pero no decide el estado: main confirma cada transición. El temporizador y el indicador activo
   se derivan del estado de main.
 - Ajustes persistentes añadidos en `shared/settings.ts`: carpeta de salida, cursor, calidad,
-  formato, plantilla de nombre y ruta opcional de FFmpeg (`schemaVersion` sigue siendo 1 porque
-  las adiciones son compatibles y usan `.catch`).
+  formato, plantilla de nombre y ruta opcional de FFmpeg. Las adiciones usan `.catch` por campo;
+  la sesión 08 elevó `schemaVersion` a 2 al añadir `general`, `shortcuts` y `performance`.
 - Verificación real: la app compilada grabó un monitor físico con pausa/reanudación y produjo un
   WebM reproducible con cabecera EBML válida, listado después por la biblioteca.
 
@@ -159,7 +163,7 @@ probado por OpenScreen.
   reenvolver el WebM sin pérdida (`streamCopy`); MP4 y los ajustes avanzados requieren transcode.
   Todo lo que no pasó una prueba real se rechaza con un motivo, no se ofrece como compatible.
 - `src/components/recording/EncodingSettings.tsx`: panel compartido por la página de grabación y
-  Ajustes > Video/Rendimiento. Muestra las opciones no disponibles deshabilitadas y explica por qué.
+  Ajustes > Video. Muestra las opciones no disponibles deshabilitadas y explica por qué.
   Los perfiles guardan y aplican únicamente la combinación actual de ajustes.
 - `getDisplayMedia` sigue siendo la primera operación asíncrona de `start()`: cualquier IPC previo
   consume la activación transitoria del gesto. Las constraints se piden como `ideal`; se comprueban
@@ -216,5 +220,33 @@ probado por OpenScreen.
   se lista con `durationMs: 3190`, `metadataStatus: ok`, VP9, 1280×720, 24 fps aplicados y
   23,7 fps medidos. Si el archivo no existe en otra máquina, la prueba se omite en lugar de
   sustituirse por datos de ejemplo.
-- `npm test`: 80 pruebas; `npm run typecheck` y `npm run build`: correctos. La CSP compilada
-  incluye `openscreen-media:` solo en `media-src`.
+- `npm test`: 80 pruebas en esa sesión; `npm run typecheck` y `npm run build`: correctos. La CSP
+  compilada incluye `openscreen-media:` solo en `media-src`.
+
+## Preferencias, atajos y diagnóstico (Sesión 08)
+
+- `shared/settings.ts` pasa a `schemaVersion: 2`. `general`, `shortcuts` y `performance` se leen con
+  valores por defecto por campo, por lo que un archivo de la versión 1 conserva lo que sí era válido.
+  Los parches recibidos por IPC siguen siendo estrictos y rechazan claves desconocidas.
+- `shared/shortcuts.ts` concentra la lógica pura: alias de modificadores, teclas admitidas,
+  combinaciones reservadas, detección de duplicados y conversión de eventos de teclado. La interfaz
+  captura la combinación con `keydown`, rechaza colisiones antes de guardar y muestra el estado real.
+- `SystemService` aplica tema nativo, inicio con el sistema (solo app empaquetada en Windows/macOS),
+  bandeja y registro de `globalShortcut`. Crea la bandeja cuando existe una ventana que puede quedar
+  oculta (`minimizeOnClose` o `startMinimized`). «Salir» pasa por `before-quit` para no omitir la
+  limpieza de captura, atajos, FFmpeg y archivos.
+- El atajo de micrófono se entrega al renderer como un evento tipado y usa el mismo
+  `updateTrack('microphone', ...)` que el mezclador: respeta el permiso y el flujo de error ya
+  existentes en Web Audio. Los demás atajos reutilizan las mismas acciones que los botones.
+- `shared/system.ts` define capacidades, hardware, consumo, errores y recursos. Lo que no se pudo
+  medir viaja como `null` o `supported: false` con motivo. El panel de rendimiento consulta el
+  diagnóstico cada pocos segundos y permite liberar cachés y procesos FFmpeg gestionados solo si no
+  hay grabación activa.
+- `FfmpegService` mantiene un registro real de procesos hijos activos y los termina solo desde main
+  al salir o al liberar recursos. `RecordingService` aporta contadores reales de grabaciones,
+  manejadores abiertos y temporales gestionados; no se muestran ceros simulados.
+- `src/i18n` añade un diccionario tipado español/inglés sin dependencias nuevas. Cubre navegación y
+  ajustes; el resto de la interfaz permanece en español y la opción lo indica expresamente.
+- `npm test`: 96 pruebas en 15 archivos; `npm run typecheck` y `npm run build`: correctos. Las
+  integraciones de Electron (bandeja, registro real de atajos, login item y notificaciones) no se
+  simulan: su disponibilidad se consulta en tiempo de ejecución y se muestra con su motivo.

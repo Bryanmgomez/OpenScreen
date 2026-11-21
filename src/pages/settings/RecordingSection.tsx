@@ -102,6 +102,7 @@ export function RecordingSection() {
           busy={storageBusy}
           onCleanup={() => void cleanupTemp()}
           showChangeLink={false}
+          warningGb={settings.performance.storageWarningGb}
         />
       </Card>
     </>

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { constants as fsConstants } from 'node:fs'
+import { constants as fsConstants, readdirSync } from 'node:fs'
 import {
   access,
   mkdir,
@@ -195,6 +195,29 @@ export class RecordingService {
 
   getOutputDir(): string {
     return resolveOutputDir(this.options.settings.get().recording.outputDir, this.options.getVideosPath())
+  }
+
+  /** Contadores reales para el panel de recursos; nunca valores estimados. */
+  getResourceCounts(): {
+    activeRecordings: number
+    openFileHandles: number
+    managedTempFiles: number
+  } {
+    let managedTempFiles = 0
+    try {
+      managedTempFiles = readdirSync(this.getOutputDir(), { withFileTypes: true }).filter(
+        (entry) => entry.isFile() && isManagedTempFileName(entry.name)
+      ).length
+    } catch {
+      // Carpeta todavía no creada o sin permisos: no inventamos un número.
+      managedTempFiles = 0
+    }
+    return {
+      activeRecordings: this.status.sessionId ? 1 : 0,
+      openFileHandles:
+        (this.handle ? 1 : 0) + Object.values(this.audioHandles).filter(Boolean).length,
+      managedTempFiles
+    }
   }
 
   async checkFfmpeg(): Promise<boolean> {

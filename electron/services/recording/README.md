@@ -1,6 +1,6 @@
 # services/recording
 
-**Estado: implementado (Sesión 04), con audio (Sesión 05), codificación verificada (Sesión 06) y biblioteca completa (Sesión 07).**
+**Estado: implementado (Sesión 04), con audio (Sesión 05), codificación verificada (Sesión 06), biblioteca completa (Sesión 07) e integración con el diagnóstico del sistema (Sesión 08).**
 
 Responsabilidad: máquina de estados de la grabación, prevención de grabaciones duplicadas,
 control de archivos temporales, finalización del contenedor y recuperación ante interrupciones.
@@ -42,6 +42,17 @@ control de archivos temporales, finalización del contenedor y recuperación ant
   fotograma real. La CSP incluye el esquema únicamente en `media-src`.
 - `filterAndSortRecordings()` filtra y ordena sin inventar valores; `src/services/thumbnailService.ts`
   decodifica el vídeo en el navegador y cachea la miniatura por ruta.
+
+## Diagnóstico (Sesión 08)
+
+- `RecordingService.getResourceCounts()` informa del número real de grabaciones activas, manejadores
+  de archivo abiertos y temporales gestionados presentes en la carpeta de salida. No se inventan
+  ceros: si la carpeta no se puede leer, el contador de temporales queda en 0 y el panel no afirma
+  lo contrario.
+- `FfmpegService.activeProcessCount` y `terminateProcesses()` exponen el registro real de procesos
+  hijos. Main solo los termina al salir o al liberar recursos, y nunca durante una grabación activa.
+- El umbral `performance.storageWarningGb` se aplica en la biblioteca y en Ajustes > Almacenamiento
+  solo cuando `statfs` devolvió un valor real; nunca borra grabaciones automáticamente.
 
 ## Decisiones
 

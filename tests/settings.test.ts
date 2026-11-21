@@ -144,6 +144,72 @@ describe('mergeSettings', () => {
   })
 })
 
+describe('preferencias de la Sesión 08', () => {
+  it('migra un archivo de la versión 1 sin perder los ajustes válidos', () => {
+    const result = parseStoredSettings({
+      schemaVersion: 1,
+      appearance: { theme: 'light', reduceMotion: true },
+      recording: { format: 'webm', fps: 24 }
+    })
+    expect(result.schemaVersion).toBe(2)
+    expect(result.appearance).toEqual({ theme: 'light', reduceMotion: true })
+    expect(result.recording.fps).toBe(24)
+    expect(result.general).toEqual(DEFAULT_SETTINGS.general)
+    expect(result.shortcuts).toEqual(DEFAULT_SETTINGS.shortcuts)
+    expect(result.performance).toEqual(DEFAULT_SETTINGS.performance)
+  })
+
+  it('repara valores inválidos de las nuevas secciones', () => {
+    const result = parseStoredSettings({
+      general: { language: 'fr', startupPage: 'unknown', notifications: { enabled: 'sí' } },
+      shortcuts: { enabled: 'sí', bindings: { start: 'Ctrl+Alt+Delete' } },
+      performance: { storageWarningGb: -1, thumbnailCacheLimit: 2 }
+    })
+    expect(result.general.language).toBe('es')
+    expect(result.general.startupPage).toBe('home')
+    expect(result.general.notifications.enabled).toBe(true)
+    expect(result.shortcuts).toEqual(DEFAULT_SETTINGS.shortcuts)
+    expect(result.performance.storageWarningGb).toBe(2)
+    expect(result.performance.thumbnailCacheLimit).toBe(24)
+  })
+
+  it('acepta parches válidos y rechaza claves desconocidas', () => {
+    expect(
+      settingsPatchSchema.safeParse({
+        general: {
+          startAtLogin: true,
+          language: 'en',
+          startupPage: 'library',
+          notifications: { errors: false }
+        },
+        performance: { storageWarningGb: 5 }
+      }).success
+    ).toBe(true)
+    expect(settingsPatchSchema.safeParse({ general: { language: 'fr' } }).success).toBe(false)
+    expect(settingsPatchSchema.safeParse({ performance: { invented: 1 } }).success).toBe(false)
+  })
+
+  it('combina parches de general, atajos y rendimiento sin mutar el original', () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, {
+      general: { notifications: { errors: false } },
+      performance: { storageWarningGb: 8 },
+      shortcuts: {
+        enabled: true,
+        bindings: { ...DEFAULT_SETTINGS.shortcuts.bindings, start: 'Ctrl+Alt+G' }
+      }
+    })
+    expect(merged.general.notifications).toMatchObject({
+      enabled: true,
+      recordingComplete: true,
+      errors: false
+    })
+    expect(merged.performance.storageWarningGb).toBe(8)
+    expect(merged.shortcuts.bindings.start).toBe('Ctrl+Alt+G')
+    expect(DEFAULT_SETTINGS.general.notifications.errors).toBe(true)
+    expect(DEFAULT_SETTINGS.shortcuts.enabled).toBe(false)
+  })
+})
+
 describe('ajustes de codificación', () => {
   it('rechaza combinaciones inválidas y campos desconocidos', () => {
     expect(settingsPatchSchema.safeParse({ recording: { fps: 120 } }).success).toBe(true)

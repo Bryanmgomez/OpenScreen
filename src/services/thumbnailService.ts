@@ -5,6 +5,17 @@
  */
 const cache = new Map<string, string>()
 const inFlight = new Map<string, Promise<string | null>>()
+let cacheLimit = 24
+
+/** Aplica el límite configurado y descarta las entradas más antiguas. */
+export function setThumbnailCacheLimit(limit: number): void {
+  cacheLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 24
+  while (cache.size > cacheLimit) {
+    const oldest = cache.keys().next()
+    if (oldest.done) break
+    cache.delete(oldest.value)
+  }
+}
 
 export function cachedThumbnail(path: string): string | undefined {
   return cache.get(path)
@@ -88,7 +99,14 @@ export function generateThumbnail(path: string, src: string): Promise<string | n
 
   const task = captureFrame(src)
     .then((dataUrl) => {
-      if (dataUrl) cache.set(path, dataUrl)
+      if (dataUrl) {
+        cache.set(path, dataUrl)
+        while (cache.size > cacheLimit) {
+          const oldest = cache.keys().next()
+          if (oldest.done) break
+          cache.delete(oldest.value)
+        }
+      }
       return dataUrl
     })
     .finally(() => {
