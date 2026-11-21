@@ -32,14 +32,69 @@ import { useSettingsStore } from '@/store/settingsStore'
 
 interface EncodingSettingsProps {
   disabled?: boolean
+  /** Controles que ya se muestran en otro lugar (p. ej. en el panel rápido de grabación). */
+  omit?: readonly ('fps' | 'quality')[]
+}
+
+interface QuickSelectProps {
+  disabled?: boolean
+  hideLabel?: boolean
 }
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
+/** Selector de FPS: solo ofrece lo que el equipo y la fuente pueden sostener. */
+export function FpsSelect({ disabled = false, hideLabel = false }: QuickSelectProps) {
+  const { settings, update } = useSettingsStore()
+  const snapshot = useCaptureStore((state) => state.snapshot)
+  const rendererCapabilities = useRecordingStore((state) => state.rendererCapabilities)
+  if (!settings) return null
+  const frameRates = fpsOptions(
+    captureLimits(snapshot),
+    rendererCapabilities ?? EMPTY_RENDERER_CAPABILITIES
+  )
+
+  return (
+    <Select
+      label="FPS"
+      hideLabel={hideLabel}
+      value={String(settings.recording.fps)}
+      options={frameRates.map((item) => ({
+        value: item.value,
+        label: item.reason ? `${item.label} (sin evidencia)` : item.label
+      }))}
+      disabledOptions={frameRates.filter((item) => item.reason).map((item) => item.value)}
+      disabled={disabled}
+      onChange={(value) =>
+        void update({ recording: { fps: Number(value) as RecordingFps, activeProfileId: null } })
+      }
+    />
+  )
+}
+
+/** Selector de calidad (baja, media, alta o personalizada). */
+export function QualitySelect({ disabled = false, hideLabel = false }: QuickSelectProps) {
+  const { settings, update } = useSettingsStore()
+  if (!settings) return null
+
+  return (
+    <Select
+      label="Calidad"
+      hideLabel={hideLabel}
+      value={settings.recording.quality}
+      options={qualityOptions()}
+      disabled={disabled}
+      onChange={(value) =>
+        void update({ recording: { quality: value as RecordingQuality, activeProfileId: null } })
+      }
+    />
+  )
+}
+
 /** Controles de codificación. Todas las opciones dependen de pruebas reales de capacidad. */
-export function EncodingSettings({ disabled = false }: EncodingSettingsProps) {
+export function EncodingSettings({ disabled = false, omit = [] }: EncodingSettingsProps) {
   const { settings, update } = useSettingsStore()
   const snapshot = useCaptureStore((state) => state.snapshot)
   const ffmpegAvailable = useRecordingStore((state) => state.ffmpegAvailable)
@@ -157,21 +212,7 @@ export function EncodingSettings({ disabled = false }: EncodingSettingsProps) {
         }
       />
 
-      <Select
-        label="FPS"
-        value={String(recording.fps)}
-        options={frameRates.map((item) => ({
-          value: item.value,
-          label: item.reason ? `${item.label} (sin evidencia)` : item.label
-        }))}
-        disabledOptions={frameRates.filter((item) => item.reason).map((item) => item.value)}
-        disabled={disabled}
-        onChange={(value) =>
-          void update({
-            recording: { fps: Number(value) as RecordingFps, activeProfileId: null }
-          })
-        }
-      />
+      {!omit.includes('fps') && <FpsSelect disabled={disabled} />}
 
       <Select
         label="Formato"
@@ -220,15 +261,7 @@ export function EncodingSettings({ disabled = false }: EncodingSettingsProps) {
         }
       />
 
-      <Select
-        label="Calidad"
-        value={recording.quality}
-        options={qualityOptions()}
-        disabled={disabled}
-        onChange={(value) =>
-          void update({ recording: { quality: value as RecordingQuality, activeProfileId: null } })
-        }
-      />
+      {!omit.includes('quality') && <QualitySelect disabled={disabled} />}
 
       {recording.quality === 'custom' && (
         <>

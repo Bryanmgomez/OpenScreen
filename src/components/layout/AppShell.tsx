@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
+import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
 
 export function AppShell() {
@@ -12,6 +13,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <StatusBar />
     </div>
   )
 }

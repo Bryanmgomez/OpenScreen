@@ -1,58 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
 import { Play, Square, Video, VideoOff } from 'lucide-react'
 import type { SourceRef } from '@shared/capture'
 import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Panel'
-import { toMessage } from '@/utils/errors'
+import { usePreviewStream } from '@/hooks/usePreviewStream'
 
 interface SourcePreviewProps {
   selection: SourceRef | null
   available: boolean
 }
 
-/**
- * Vista previa real: el renderer pide un `MediaStream` con `getDisplayMedia` y main concede
- * exactamente la fuente seleccionada mediante `setDisplayMediaRequestHandler`.
- */
+/** Vista previa en panel (Ajustes → Captura). La de la página Grabar es `PreviewStage`. */
 export function SourcePreview({ selection, available }: SourcePreviewProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const [active, setActive] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const stop = (): void => {
-    streamRef.current?.getTracks().forEach((track) => track.stop())
-    streamRef.current = null
-    if (videoRef.current) videoRef.current.srcObject = null
-    setActive(false)
-  }
-
-  useEffect(() => {
-    stop()
-    setError(null)
-    return () => stop()
-  }, [selection?.id, selection?.kind, available])
-
-  const start = async (): Promise<void> => {
-    try {
-      stop()
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
-      streamRef.current = stream
-      const video = videoRef.current
-      if (video) {
-        video.srcObject = stream
-        await video.play().catch(() => undefined)
-      }
-      stream.getVideoTracks()[0]?.addEventListener('ended', () => setActive(false))
-      setActive(true)
-      setError(null)
-    } catch (cause) {
-      setError(toMessage(cause))
-      setActive(false)
-    }
-  }
-
-  const canPreview = Boolean(selection && available && navigator.mediaDevices?.getDisplayMedia)
+  const { videoRef, active, error, canPreview, start, stop } = usePreviewStream(selection, available)
 
   return (
     <Panel

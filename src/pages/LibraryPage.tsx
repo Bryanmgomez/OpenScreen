@@ -73,7 +73,7 @@ export function LibraryPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
+      <header className="page__header page__header--split">
         <div>
           <h1>Grabaciones</h1>
           <p>
