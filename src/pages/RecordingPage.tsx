@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Check, Monitor, RefreshCw, Scan, AppWindow } from 'lucide-react'
 import type { CaptureSource, SourceRef } from '@shared/capture'
 import { RegionForm } from '@/components/capture/RegionForm'
+import { RecordingControls } from '@/components/recording/RecordingControls'
 import { SourceCard } from '@/components/capture/SourceCard'
 import { SourcePreview } from '@/components/capture/SourcePreview'
 import { Badge } from '@/components/ui/Badge'
@@ -10,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Panel } from '@/components/ui/Panel'
 import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { useCaptureStore } from '@/store/captureStore'
+import { useRecordingStore } from '@/store/recordingStore'
 
 type Tab = 'screen' | 'window' | 'region'
 
@@ -34,11 +36,14 @@ export function RecordingPage() {
   const [tab, setTab] = useState<Tab>('screen')
   const { snapshot, error, busy, init, refresh, selectSource, setRegion, clearSelection } =
     useCaptureStore()
+  const recordingStatus = useRecordingStore((state) => state.status)
 
   useEffect(() => {
     void init()
   }, [init])
 
+  const recordingActive =
+    recordingStatus.state === 'recording' || recordingStatus.state === 'paused'
   const selection = snapshot?.selection ?? null
   const sources = snapshot?.sources.filter((source) => source.kind === tab) ?? []
 
@@ -47,7 +52,7 @@ export function RecordingPage() {
       <header className="page__header">
         <div>
           <h1>Grabación</h1>
-          <p>Selecciona exactamente qué monitor o ventana quieres capturar.</p>
+          <p>Selecciona la fuente, configura la salida y graba con control real de inicio, pausa y fin.</p>
         </div>
         <div className="toolbar">
           <SegmentedControl label="Tipo de fuente" value={tab} options={TABS} onChange={setTab} />
@@ -102,6 +107,7 @@ export function RecordingPage() {
                         key={source.id}
                         source={source}
                         selected={selection?.id === source.id}
+                        disabled={recordingActive}
                         onSelect={() => void selectSource(toRef(source))}
                       />
                     ))}
@@ -110,6 +116,7 @@ export function RecordingPage() {
               </Panel>
 
               <div className="stack">
+                <RecordingControls />
                 <SourcePreview selection={selection} available={snapshot.selectionAvailable} />
 
                 <Panel title="Selección actual" icon={<Check size={15} />}>
@@ -123,7 +130,7 @@ export function RecordingPage() {
                         <dt>Estado</dt>
                         <dd>{snapshot.selectionAvailable ? 'Disponible' : 'Ya no disponible'}</dd>
                       </dl>
-                      <Button onClick={() => void clearSelection()} disabled={busy}>
+                      <Button onClick={() => void clearSelection()} disabled={busy || recordingActive}>
                         Quitar selección
                       </Button>
                     </div>

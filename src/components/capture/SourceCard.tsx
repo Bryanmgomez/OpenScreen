@@ -6,11 +6,12 @@ import { cn } from '@/utils/cn'
 interface SourceCardProps {
   source: CaptureSource
   selected: boolean
+  disabled?: boolean
   onSelect: () => void
 }
 
 /** Una fuente real devuelta por desktopCapturer, con miniatura y datos verificables. */
-export function SourceCard({ source, selected, onSelect }: SourceCardProps) {
+export function SourceCard({ source, selected, disabled = false, onSelect }: SourceCardProps) {
   const resolution = source.width && source.height ? `${source.width}×${source.height}` : null
 
   return (
@@ -18,6 +19,7 @@ export function SourceCard({ source, selected, onSelect }: SourceCardProps) {
       type="button"
       className={cn('source-card', selected && 'source-card--selected')}
       aria-pressed={selected}
+      disabled={disabled}
       onClick={onSelect}
     >
       <span className="source-card__thumb">

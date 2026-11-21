@@ -25,5 +25,21 @@ export const IPC_CHANNELS = {
     setRegion: 'capture:set-region',
     clearSelection: 'capture:clear-selection',
     sourcesChanged: 'capture:sources-changed'
+  },
+  recording: {
+    getStatus: 'recording:get-status',
+    begin: 'recording:begin',
+    pause: 'recording:pause',
+    resume: 'recording:resume',
+    appendChunk: 'recording:append-chunk',
+    finish: 'recording:finish',
+    cancel: 'recording:cancel',
+    list: 'recording:list',
+    reveal: 'recording:reveal',
+    open: 'recording:open',
+    delete: 'recording:delete',
+    pickOutputDir: 'recording:pick-output-dir',
+    checkFfmpeg: 'recording:check-ffmpeg',
+    statusChanged: 'recording:status-changed'
   }
 } as const

@@ -1,6 +1,8 @@
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, session, shell } from 'electron'
 import { join } from 'node:path'
 import { CaptureService } from '../services/capture/captureService'
+import { FfmpegService } from '../services/recording/ffmpegService'
+import { RecordingService } from '../services/recording/recordingService'
 import { SettingsService } from '../services/settings/settingsService'
 import { registerIpcHandlers } from './ipc'
 import { applySessionSecurity, applyWebContentsHardening } from './security/session'
@@ -9,11 +11,12 @@ import { createMainWindow } from './window'
 // Debe fijarse antes de `ready`: determina la carpeta de datos del usuario (userData).
 app.setName('OpenScreen')
 
-// Una sola instancia: evita ventanas duplicadas y, más adelante, grabaciones simultáneas accidentales.
+// Una sola instancia: evita ventanas duplicadas y grabaciones simultáneas accidentales.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   let mainWindow: BrowserWindow | null = null
+  let quitting = false
 
   const openMainWindow = (settings: SettingsService): void => {
     mainWindow = createMainWindow(settings.get())
@@ -38,9 +41,29 @@ if (!app.requestSingleInstanceLock()) {
       const settings = new SettingsService(join(app.getPath('userData'), 'settings.json'))
       await settings.load()
       const capture = new CaptureService(settings)
-      registerIpcHandlers({ settings, capture })
+      const ffmpeg = new FfmpegService(() => settings.get().recording.ffmpegPath)
+      const recording = new RecordingService({
+        settings,
+        capture,
+        getVideosPath: () => app.getPath('videos'),
+        ffmpeg,
+        reveal: (path) => shell.showItemInFolder(path),
+        open: (path) => {
+          void shell.openPath(path)
+        }
+      })
+      registerIpcHandlers({ settings, capture, recording })
       capture.startWatching()
-      app.on('before-quit', () => capture.stopWatching())
+      app.on('before-quit', (event) => {
+        if (quitting) return
+        // La finalización del archivo es asíncrona: hay que esperarla antes de salir.
+        event.preventDefault()
+        quitting = true
+        capture.stopWatching()
+        void recording.dispose().finally(() => {
+          app.quit()
+        })
+      })
 
       /**
        * `getDisplayMedia` no permite seleccionar fuente por `deviceId` (spec). El renderer

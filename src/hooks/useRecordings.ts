@@ -1,15 +1,37 @@
+import { useEffect } from 'react'
 import type { RecordingItem } from '@/types/recording'
+import { useRecordingsStore } from '@/store/recordingsStore'
 
 interface RecordingsState {
-  /** `false` mientras no exista el servicio de almacenamiento. */
   available: boolean
+  busy: boolean
+  error: string | null
   items: readonly RecordingItem[]
+  reveal: (path: string) => Promise<void>
+  open: (path: string) => Promise<void>
+  remove: (path: string) => Promise<void>
 }
 
-/**
- * Punto único de acceso a las grabaciones. Aún no hay backend (servicio `storage`),
- * así que no devuelve nada; cuando exista, solo hay que cambiar este hook.
- */
+/** Punto único de acceso a las grabaciones reales listadas por el proceso main. */
 export function useRecordings(): RecordingsState {
-  return { available: false, items: [] }
+  const { items, error, busy, refresh, reveal, open, remove } = useRecordingsStore()
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  return {
+    available: true,
+    busy,
+    error,
+    items: items.map((file) => ({
+      id: file.path,
+      name: file.name,
+      durationMs: file.durationMs,
+      createdAt: new Date(file.createdAt).toISOString()
+    })),
+    reveal,
+    open,
+    remove
+  }
 }

@@ -1,10 +1,8 @@
 import { Circle, Film, History, Mic, Monitor } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Logo } from '@/components/brand/Logo'
-import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Panel'
 import { PendingControl } from '@/components/ui/PendingControl'
-import { PendingTag } from '@/components/ui/PendingTag'
 import { SettingRow } from '@/components/ui/SettingRow'
 import { StatusIndicator } from '@/components/ui/StatusIndicator'
 import { useRecordings } from '@/hooks/useRecordings'
@@ -12,7 +10,7 @@ import { RecordingCard } from '@/components/recordings/RecordingCard'
 import { PENDING_CONTROLS as C } from '@/utils/pendingControls'
 
 export function HomePage() {
-  const { items, available } = useRecordings()
+  const { items } = useRecordings()
   const recent = items.slice(0, 3)
 
   return (
@@ -22,19 +20,13 @@ export function HomePage() {
         <div className="hero__text">
           <h1>OpenScreen</h1>
           <p>Grabador de pantalla de código abierto.</p>
-          <StatusIndicator tone="success" label="Detección de fuentes disponible" />
+          <StatusIndicator tone="success" label="Captura y grabación disponibles" />
         </div>
         <div className="hero__actions">
-          <Button
-            variant="danger"
-            large
-            icon={<Circle size={16} fill="currentColor" />}
-            disabled
-            title="La grabación aún no está implementada; primero elige una fuente en Grabación"
-          >
+          <Link className="btn btn--danger btn--lg" to="/recording">
+            <Circle size={16} fill="currentColor" />
             Iniciar grabación
-          </Button>
-          <PendingTag phase={2} />
+          </Link>
         </div>
       </section>
 
@@ -93,7 +85,7 @@ export function HomePage() {
           </div>
         ) : (
           <p className="card__description">
-            {available ? 'Aún no hay grabaciones.' : 'Aún no hay grabaciones. La biblioteca llega en la Fase 5.'}
+            Aún no hay grabaciones. Detén una grabación para verla aquí.
           </p>
         )}
       </Panel>

@@ -15,6 +15,8 @@ Medidas aplicadas en la Fase 1 y dónde viven.
 | Sin ventanas nuevas, sin `<webview>`, sin navegación fuera de la UI propia | `security/session.ts` |
 | Una sola instancia de la aplicación | `electron/main/index.ts` |
 | Lectura tolerante y escritura atómica de ajustes | `services/settings/settingsService.ts` |
+| Una sola grabación activa, chunks ordenados y temporales limpios | `services/recording/recordingService.ts` |
+| Rutas de grabación restringidas a la carpeta configurada | `services/recording/model.ts`, `recordingService.ts` |
 
 ## CSP de producción
 
@@ -29,8 +31,10 @@ base-uri 'none'; form-action 'none'
 ## Reglas para las siguientes fases
 
 - El permiso `display-capture` ya está habilitado de forma explícita y mínima, solo para el frame principal del renderer propio. Micrófono y audio del sistema se habilitarán en la Fase 3 con el mismo criterio.
-- Toda ruta de archivo recibida del renderer se validará y normalizará en main.
-- FFmpeg y otros ejecutables se lanzarán con arreglos de argumentos, nunca concatenando cadenas de shell.
+- Toda ruta de archivo recibida del renderer se valida y normaliza en main. `recording:reveal`,
+  `recording:open` y `recording:delete` solo operan dentro de la carpeta de grabaciones resuelta.
+- FFmpeg se lanza con arreglos de argumentos (`node:child_process.spawn`), nunca concatenando
+  cadenas de shell. La ruta del binario es configurable, pero no se interpreta como comando.
 
 ## Limitaciones conocidas
 

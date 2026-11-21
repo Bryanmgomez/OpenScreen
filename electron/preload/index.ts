@@ -40,6 +40,22 @@ const api: OpenScreenApi = {
     setRegion: (region) => ipcRenderer.invoke(IPC_CHANNELS.capture.setRegion, region),
     clearSelection: () => ipcRenderer.invoke(IPC_CHANNELS.capture.clearSelection),
     onSourcesChange: (listener) => subscribe(IPC_CHANNELS.capture.sourcesChanged, listener)
+  },
+  recording: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.recording.getStatus),
+    begin: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.begin, request),
+    pause: () => ipcRenderer.invoke(IPC_CHANNELS.recording.pause),
+    resume: () => ipcRenderer.invoke(IPC_CHANNELS.recording.resume),
+    appendChunk: (chunk) => ipcRenderer.invoke(IPC_CHANNELS.recording.appendChunk, chunk),
+    finish: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.finish, request),
+    cancel: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.cancel, request),
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.recording.list),
+    reveal: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.reveal, request),
+    open: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.open, request),
+    delete: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.delete, request),
+    pickOutputDir: () => ipcRenderer.invoke(IPC_CHANNELS.recording.pickOutputDir),
+    checkFfmpeg: () => ipcRenderer.invoke(IPC_CHANNELS.recording.checkFfmpeg),
+    onStatusChange: (listener) => subscribe(IPC_CHANNELS.recording.statusChanged, listener)
   }
 }
 

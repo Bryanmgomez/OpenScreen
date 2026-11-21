@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AppearanceSection } from './settings/AppearanceSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { PendingSection } from './settings/PendingSection'
+import { RecordingSection } from './settings/RecordingSection'
 import { SETTINGS_SECTIONS } from './settings/sections'
 import { SideNav } from '@/components/ui/SideNav'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -32,6 +33,7 @@ export function SettingsPage() {
         <div className="settings__panel">
           {active?.id === 'general' && <GeneralSection />}
           {active?.id === 'appearance' && <AppearanceSection />}
+          {active?.id === 'storage' && <RecordingSection />}
           {active?.pending && <PendingSection section={active} />}
         </div>
       </div>

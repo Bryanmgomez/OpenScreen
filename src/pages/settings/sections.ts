@@ -35,13 +35,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
     id: 'capture',
     label: 'Captura',
     icon: Monitor,
-    pending: { phase: 2, groups: [{ title: 'Fuente y cursor', controls: [C.captureType, C.captureSource, C.cursor] }] }
+    pending: { phase: 2, groups: [{ title: 'Fuente', controls: [C.captureType, C.captureSource] }] }
   },
   {
     id: 'video',
     label: 'Video',
     icon: Video,
-    pending: { phase: 4, groups: [{ title: 'Salida de video', controls: [C.resolution, C.fps, C.format, C.quality] }] }
+    pending: { phase: 4, groups: [{ title: 'Salida de video', controls: [C.resolution, C.fps] }] }
   },
   {
     id: 'audio',
@@ -61,12 +61,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
     icon: Keyboard,
     pending: { phase: 2, groups: [{ title: 'Atajos globales', controls: [C.shortcutStart, C.shortcutPause, C.shortcutMute] }] }
   },
-  {
-    id: 'storage',
-    label: 'Almacenamiento',
-    icon: HardDrive,
-    pending: { phase: 5, groups: [{ title: 'Destino', controls: [C.outputFolder, C.fileName] }] }
-  },
+  { id: 'storage', label: 'Almacenamiento', icon: HardDrive },
   {
     id: 'performance',
     label: 'Rendimiento',

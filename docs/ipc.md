@@ -20,6 +20,20 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
 | `capture:set-region` | invoke | `CaptureRegion` (estricto) | `CaptureSnapshot` |
 | `capture:clear-selection` | invoke | — | `CaptureSnapshot` |
 | `capture:sources-changed` | evento main → renderer | — | `CaptureSnapshot` |
+| `recording:get-status` | invoke | — | `RecordingStatus` |
+| `recording:begin` | invoke | `RecordingBeginRequest` (estricto) | `RecordingStatus` |
+| `recording:pause` | invoke | — | `RecordingStatus` |
+| `recording:resume` | invoke | — | `RecordingStatus` |
+| `recording:append-chunk` | invoke | `RecordingChunk` (estricto) | `RecordingStatus` |
+| `recording:finish` | invoke | `RecordingFinishRequest` (estricto) | `RecordingStatus` |
+| `recording:cancel` | invoke | `RecordingSessionRequest` (estricto) | `RecordingStatus` |
+| `recording:list` | invoke | — | `RecordingList` |
+| `recording:reveal` | invoke | `RecordingFilePath` (estricto) | — |
+| `recording:open` | invoke | `RecordingFilePath` (estricto) | — |
+| `recording:delete` | invoke | `RecordingFilePath` (estricto) | `RecordingList` |
+| `recording:pick-output-dir` | invoke | — | `string \| null` |
+| `recording:check-ffmpeg` | invoke | — | `boolean` |
+| `recording:status-changed` | evento main → renderer | — | `RecordingStatus` |
 
 ## Garantías
 
@@ -28,5 +42,8 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
 3. Los controles de ventana actúan únicamente sobre la ventana que envió el mensaje.
 4. Las fuentes de captura se revalidan en main: una referencia guardada que ya no existe se
    devuelve como no disponible; nunca se sustituye silenciosamente por otra fuente.
+5. El estado de grabación y los archivos los controla main: solo hay una sesión activa, los chunks
+   se escriben en orden y las rutas de reveal/open/delete se restringen a la carpeta de salida.
+6. FFmpeg se lanza con arreglos de argumentos; nunca se concatena una cadena de shell.
 
 Para añadir un canal, sigue los pasos de [CONTRIBUTING.md](../CONTRIBUTING.md).

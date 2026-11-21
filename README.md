@@ -3,7 +3,7 @@
 Grabador de pantalla de escritorio, moderno y de código abierto, construido con Electron, React, TypeScript y Vite.
 Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 
-> **Estado: Fase 2 en curso (Sesión 03).** La aplicación detecta monitores y ventanas reales, permite seleccionar la fuente y mostrar vista previa, **pero todavía no graba**. La grabación llega en las siguientes sesiones. Ver [Hoja de ruta](#hoja-de-ruta).
+> **Estado: Fase 2 completada (Sesión 04).** La aplicación detecta monitores y ventanas reales, permite seleccionar la fuente y grabarla con inicio, pausa, reanudación y parada reales. Los archivos se finalizan en disco y aparecen en la biblioteca. Ver [Hoja de ruta](#hoja-de-ruta).
 
 ## Qué funciona hoy
 
@@ -13,12 +13,15 @@ Nombre provisional del proyecto. Licencia **GNU GPL-3.0-only**.
 - Información real del entorno (versiones, plataforma, carpeta de datos) obtenida del proceso main por IPC.
 - **Detección de fuentes reales**: monitores (resolución, DPI, frecuencia, principal) y ventanas, con miniatura e icono cuando el sistema los proporciona. La lista se actualiza al conectar pantallas y mediante sondeo de ventanas.
 - **Selección de fuente** persistida y revalidada: si la ventana o el monitor desaparece, la interfaz lo indica en lugar de grabar otra cosa.
-- **Vista previa real** de la fuente elegida (el mismo `MediaStream` que se usará al grabar).
-- Base de región personalizada (guardado de coordenadas; el recorte llega con el motor de grabación).
+- **Vista previa real** de la fuente elegida (el mismo `MediaStream` que se usa al grabar).
+- **Grabación real** con `MediaRecorder`: inicio, pausa, reanudación y parada; temporizador que descuenta las pausas e indicador de grabación activa.
+- **Archivos finalizados**: chunks en orden, contenedor WebM nativo o MP4 mediante FFmpeg real, nombres automáticos saneados, temporales `.part` y metadatos de duración.
+- **Biblioteca de grabaciones** conectada a archivos reales: listado, búsqueda, reproducción, revelado y borrado.
+- Base de región personalizada (guardado de coordenadas; el recorte efectivo sigue pendiente).
 - Seguridad de Electron aplicada (ver [docs/security.md](docs/security.md)).
-- Pruebas automáticas de ajustes, persistencia, seguridad y mapeo de fuentes.
+- Pruebas automáticas de ajustes, persistencia, seguridad, mapeo de fuentes, modelo de grabación y servicio de grabación con archivos reales.
 
-Lo que **no** existe todavía (y está marcado como tal en la propia interfaz): grabación de vídeo, audio, codificación con FFmpeg, biblioteca de grabaciones y atajos.
+Lo que **no** existe todavía (y está marcado como tal en la propia interfaz): audio, recorte de región, aceleración por hardware y atajos globales.
 
 ## Requisitos
 
@@ -74,18 +77,18 @@ Se añadió `shared/` respecto a la propuesta inicial: main, preload y renderer 
 | Fase | Contenido | Estado |
 | --- | --- | --- |
 | 1 | Fundación: proyecto, IPC, seguridad, interfaz base | ✅ Completada |
-| 2 | Captura: monitores, ventanas, región, vista previa, grabación básica | En curso (detección y selección listas) |
-| 3 | Audio: micrófono, audio del sistema, dispositivos, pistas | Planificada |
+| 2 | Captura: monitores, ventanas, región, vista previa, grabación básica | ✅ Completada |
+| 3 | Audio: micrófono, audio del sistema, dispositivos, pistas | Siguiente |
 | 4 | Codificación: FFmpeg, formatos, calidad, aceleración por hardware | Planificada |
 | 5 | Gestión: biblioteca, reproducción, historial, ajustes completos | Planificada |
 | 6 | Distribución: instaladores, GitHub Releases, pruebas multiplataforma | Planificada |
 
 ## Estado de las pruebas
 
-- Pruebas unitarias (`npm test`) y comprobación de tipos: pasan.
-- Compilación de producción: funciona.
-- Arranque real de la aplicación: verificado en **Linux (Xvfb)** durante el desarrollo de la Fase 1. La detección de la Sesión 03 no se ha probado aún en Windows/macOS; las limitaciones de cada plataforma están documentadas en `electron/services/capture/README.md`.
-- **Windows: aún no verificado por el autor de esta fase.** Hay que ejecutar `npm run dev` y `npm run dist:win` en Windows antes de dar la Fase 1 por cerrada en esa plataforma.
+- Pruebas unitarias y de integración (`npm test`, 49 pruebas) y comprobación de tipos: pasan.
+- Compilación de producción (`npm run build`): funciona.
+- **Prueba real de grabación (Sesión 04, Windows):** se arrancó la app compilada con Electron 45, se seleccionó un monitor real, se grabó con pausa/reanudación y se obtuvo un WebM válido (cabecera EBML `1a45dfa3`, ~3,1 MB, 5,29 s activos) en la carpeta configurada. La biblioteca lo listó con su duración real.
+- La detección de fuentes y el permiso `display-capture` se probaron en esa misma ejecución real. Las limitaciones de cada plataforma están documentadas en `electron/services/capture/README.md`.
 - Linux y macOS: no son objetivo de la primera versión; la arquitectura no lo impide.
 
 ## Contribuir

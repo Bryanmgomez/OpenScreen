@@ -111,6 +111,11 @@
   top: 0;
 }
 
+.sidebar__recording {
+  margin-top: 10px;
+  padding: 0 12px;
+}
+
 .sidebar__footer {
   margin-top: auto;
   padding: 10px 12px 2px;

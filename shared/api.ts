@@ -3,6 +3,15 @@ import type {
   CaptureSnapshot,
   SourceRef
 } from './capture'
+import type {
+  RecordingBeginRequest,
+  RecordingChunk,
+  RecordingFilePath,
+  RecordingFinishRequest,
+  RecordingList,
+  RecordingSessionRequest,
+  RecordingStatus
+} from './recording'
 import type { Settings, SettingsPatch } from './settings'
 
 /** Función que cancela una suscripción a un evento del proceso main. */
@@ -52,5 +61,22 @@ export interface OpenScreenApi {
     setRegion(region: CaptureRegion): Promise<CaptureSnapshot>
     clearSelection(): Promise<CaptureSnapshot>
     onSourcesChange(listener: (snapshot: CaptureSnapshot) => void): Unsubscribe
+  }
+  /** Motor de grabación: main es dueño del estado y de los archivos. */
+  recording: {
+    getStatus(): Promise<RecordingStatus>
+    begin(request: RecordingBeginRequest): Promise<RecordingStatus>
+    pause(): Promise<RecordingStatus>
+    resume(): Promise<RecordingStatus>
+    appendChunk(chunk: RecordingChunk): Promise<RecordingStatus>
+    finish(request: RecordingFinishRequest): Promise<RecordingStatus>
+    cancel(request: RecordingSessionRequest): Promise<RecordingStatus>
+    list(): Promise<RecordingList>
+    reveal(request: RecordingFilePath): Promise<void>
+    open(request: RecordingFilePath): Promise<void>
+    delete(request: RecordingFilePath): Promise<RecordingList>
+    pickOutputDir(): Promise<string | null>
+    checkFfmpeg(): Promise<boolean>
+    onStatusChange(listener: (status: RecordingStatus) => void): Unsubscribe
   }
 }

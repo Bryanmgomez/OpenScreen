@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { captureRegionSchema, sourceRefSchema } from './capture'
+import { recordingFormatSchema, recordingQualitySchema } from './recording'
 
 /**
  * Esquema de ajustes persistentes.
@@ -31,10 +32,33 @@ const captureSettingsSchema = z
   })
   .catch({ source: null, region: null })
 
+const DEFAULT_RECORDING_SETTINGS = {
+  // `null` = carpeta de vídeos del sistema, resuelta en main.
+  outputDir: null as string | null,
+  showCursor: true,
+  quality: 'balanced' as z.infer<typeof recordingQualitySchema>,
+  format: 'webm' as z.infer<typeof recordingFormatSchema>,
+  fileNameTemplate: 'OpenScreen-{date}-{time}',
+  // `null` = buscar `ffmpeg` en PATH; si se indica, debe ser un ejecutable real.
+  ffmpegPath: null as string | null
+}
+
+const recordingSettingsSchema = z
+  .object({
+    outputDir: z.string().nullable().catch(DEFAULT_RECORDING_SETTINGS.outputDir),
+    showCursor: z.boolean().catch(DEFAULT_RECORDING_SETTINGS.showCursor),
+    quality: recordingQualitySchema.catch(DEFAULT_RECORDING_SETTINGS.quality),
+    format: recordingFormatSchema.catch(DEFAULT_RECORDING_SETTINGS.format),
+    fileNameTemplate: z.string().min(1).catch(DEFAULT_RECORDING_SETTINGS.fileNameTemplate),
+    ffmpegPath: z.string().nullable().catch(DEFAULT_RECORDING_SETTINGS.ffmpegPath)
+  })
+  .catch(DEFAULT_RECORDING_SETTINGS)
+
 export const settingsSchema = z.object({
   schemaVersion: z.literal(1).catch(1),
   appearance: appearanceSchema.catch({ theme: 'dark', reduceMotion: false }),
-  capture: captureSettingsSchema
+  capture: captureSettingsSchema,
+  recording: recordingSettingsSchema
 })
 
 export type Settings = z.infer<typeof settingsSchema>
@@ -42,7 +66,8 @@ export type Settings = z.infer<typeof settingsSchema>
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: 1,
   appearance: { theme: 'dark', reduceMotion: false },
-  capture: { source: null, region: null }
+  capture: { source: null, region: null },
+  recording: { ...DEFAULT_RECORDING_SETTINGS }
 }
 
 /** Actualización parcial recibida por IPC. Estricta: no admite claves desconocidas. */
@@ -59,6 +84,17 @@ export const settingsPatchSchema = z
       .object({
         source: sourceRefSchema.nullable().optional(),
         region: captureRegionSchema.nullable().optional()
+      })
+      .strict()
+      .optional(),
+    recording: z
+      .object({
+        outputDir: z.string().nullable().optional(),
+        showCursor: z.boolean().optional(),
+        quality: recordingQualitySchema.optional(),
+        format: recordingFormatSchema.optional(),
+        fileNameTemplate: z.string().min(1).optional(),
+        ffmpegPath: z.string().nullable().optional()
       })
       .strict()
       .optional()
@@ -83,6 +119,30 @@ export function mergeSettings(current: Settings, patch: SettingsPatch): Settings
     capture: {
       source: patch.capture?.source !== undefined ? patch.capture.source : current.capture.source,
       region: patch.capture?.region !== undefined ? patch.capture.region : current.capture.region
+    },
+    recording: {
+      outputDir:
+        patch.recording?.outputDir !== undefined
+          ? patch.recording.outputDir
+          : current.recording.outputDir,
+      showCursor:
+        patch.recording?.showCursor !== undefined
+          ? patch.recording.showCursor
+          : current.recording.showCursor,
+      quality: patch.recording?.quality !== undefined
+        ? patch.recording.quality
+        : current.recording.quality,
+      format: patch.recording?.format !== undefined
+        ? patch.recording.format
+        : current.recording.format,
+      fileNameTemplate:
+        patch.recording?.fileNameTemplate !== undefined
+          ? patch.recording.fileNameTemplate
+          : current.recording.fileNameTemplate,
+      ffmpegPath:
+        patch.recording?.ffmpegPath !== undefined
+          ? patch.recording.ffmpegPath
+          : current.recording.ffmpegPath
     }
   }
 }

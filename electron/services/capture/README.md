@@ -32,5 +32,5 @@ interfaz lo indica y pide elegir otra; nunca se captura una fuente distinta de l
 - **Linux:** con PipeWire puede devolverse una sola fuente y combinarse ventanas/pantallas.
   No se consulta el estado de permiso porque la API no está soportada.
 
-La región personalizada guarda su geometría, pero su captura efectiva se implementará en una
-fase posterior (junto al motor de grabación).
+La región personalizada guarda su geometría. El motor de grabación (Sesión 04) ya usa la fuente
+seleccionada; el recorte efectivo a esas coordenadas sigue pendiente de una fase posterior.
