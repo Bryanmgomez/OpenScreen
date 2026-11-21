@@ -5,6 +5,7 @@ import {
   type RecordingFormat,
   type RecordingQuality
 } from '@shared/recording'
+import { AudioMixer } from '@/components/recording/AudioMixer'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Panel'
@@ -13,6 +14,7 @@ import { SettingRow } from '@/components/ui/SettingRow'
 import { StatusIndicator } from '@/components/ui/StatusIndicator'
 import { Switch } from '@/components/ui/Switch'
 import { getApi } from '@/services/ipc'
+import { useAudioStore } from '@/store/audioStore'
 import { useCaptureStore } from '@/store/captureStore'
 import { useRecordingStore } from '@/store/recordingStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -52,6 +54,7 @@ export function RecordingControls() {
   const [, forceTick] = useState(0)
   const { settings, update } = useSettingsStore()
   const { snapshot } = useCaptureStore()
+  const support = useAudioStore((state) => state.support)
   const { status, error, busy, ffmpegAvailable, cursorHonored, start, pause, resume, stop, cancel } =
     useRecordingStore()
 
@@ -59,7 +62,7 @@ export function RecordingControls() {
   const selection = snapshot?.selection ?? null
   const canStart =
     (status.state === 'idle' || status.state === 'error') &&
-    Boolean(selection && snapshot?.selectionAvailable) &&
+    Boolean(selection && snapshot?.selectionAvailable && support) &&
     !busy
 
   useEffect(() => {
@@ -82,14 +85,16 @@ export function RecordingControls() {
   }
 
   const begin = async (): Promise<void> => {
-    if (!selection) return
+    if (!selection || !support) return
     await start({
       source: selection,
       options: {
         showCursor: recording.showCursor,
         quality: recording.quality,
         format: recording.format
-      }
+      },
+      audio: settings.audio,
+      support
     })
   }
 
@@ -207,10 +212,17 @@ export function RecordingControls() {
           </SettingRow>
         </div>
 
+        <AudioMixer />
+
         {status.lastRecording && (
           <div className="recording-result">
             <Badge tone="success">Guardado</Badge>
             <span title={status.lastRecording.path}>{status.lastRecording.name}</span>
+            {status.lastRecording.tracks.length > 0 && (
+              <span className="field__hint">
+                Pistas: {status.lastRecording.tracks.map((track) => track.name).join(', ')}
+              </span>
+            )}
           </div>
         )}
       </div>

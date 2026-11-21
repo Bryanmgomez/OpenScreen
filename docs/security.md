@@ -9,7 +9,7 @@ Medidas aplicadas en la Fase 1 y dónde viven.
 | Preload con API mínima y tipada; no se expone `ipcRenderer` ni Node | `electron/preload/index.ts` |
 | Validación de cada mensaje IPC con zod antes de ejecutar nada | `electron/main/ipc/register.ts` |
 | Rechazo de mensajes cuyo remitente no sea el frame principal del renderer propio | `electron/main/ipc/register.ts`, `security/trust.ts` |
-| Permisos denegados por defecto, excepto `display-capture` solo para el renderer propio | `electron/main/security/session.ts` |
+| Permisos denegados por defecto, excepto `display-capture` y `media` de audio (no cámara) solo para el renderer propio | `electron/main/security/session.ts` |
 | La fuente del `MediaStream` la decide main, nunca la página (`setDisplayMediaRequestHandler`) | `electron/main/index.ts` |
 | CSP estricta por cabecera (y por `<meta>` en producción) | `security/csp.ts`, `electron.vite.config.ts` |
 | Sin ventanas nuevas, sin `<webview>`, sin navegación fuera de la UI propia | `security/session.ts` |

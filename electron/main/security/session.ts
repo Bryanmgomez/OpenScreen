@@ -5,9 +5,9 @@ import { isTrustedUrl } from './renderer'
 /**
  * Endurece la sesión por defecto.
  *
- * - Deniega todos los permisos del navegador salvo `display-capture`, que se concede
- *   únicamente al frame principal de nuestra propia interfaz (Sesión 03). Micrófono y
- *   audio del sistema se habilitarán de forma explícita en la Fase 3.
+ * - Deniega todos los permisos del navegador salvo `display-capture` y acceso a micrófono
+ *   (`media` con `mediaTypes: ['audio']`), concedidos únicamente al frame principal de nuestra
+ *   propia interfaz. La cámara y el resto de permisos siguen denegados.
  * - Aplica la CSP por cabecera de respuesta.
  */
 export function applySessionSecurity(): void {
@@ -16,12 +16,34 @@ export function applySessionSecurity(): void {
   const canCapture = (webContents: WebContents | null): boolean =>
     Boolean(webContents && isTrustedUrl(webContents.getURL()))
 
-  ses.setPermissionRequestHandler((webContents, permission, callback) => {
-    callback(permission === 'display-capture' && canCapture(webContents))
+  /** Chromium informa de cámara y micrófono como `media`; solo se permite audio. */
+  const audioTypes = (details: unknown): string[] | null => {
+    if (typeof details !== 'object' || details === null) return null
+    const value = details as { mediaTypes?: unknown; mediaType?: unknown }
+    if (Array.isArray(value.mediaTypes)) {
+      return value.mediaTypes.filter(
+        (type): type is string => type === 'audio' || type === 'video'
+      )
+    }
+    return typeof value.mediaType === 'string' ? [value.mediaType] : null
+  }
+  const microphoneOnly = (details: unknown): boolean => {
+    const types = audioTypes(details)
+    return types !== null && types.includes('audio') && !types.includes('video')
+  }
+
+  ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    if (!canCapture(webContents)) return callback(false)
+    if (permission === 'display-capture') return callback(true)
+    if (permission === 'media') return callback(microphoneOnly(details))
+    return callback(false)
   })
-  ses.setPermissionCheckHandler((webContents, permission) =>
-    permission === 'display-capture' && canCapture(webContents)
-  )
+  ses.setPermissionCheckHandler((webContents, permission, _origin, details) => {
+    if (!canCapture(webContents)) return false
+    if (permission === 'display-capture') return true
+    if (permission === 'media') return microphoneOnly(details)
+    return false
+  })
 
   const csp = buildCsp({ dev: !app.isPackaged })
   ses.webRequest.onHeadersReceived((details, callback) => {

@@ -26,12 +26,17 @@ export const IPC_CHANNELS = {
     clearSelection: 'capture:clear-selection',
     sourcesChanged: 'capture:sources-changed'
   },
+  audio: {
+    getSupport: 'audio:get-support'
+  },
   recording: {
     getStatus: 'recording:get-status',
     begin: 'recording:begin',
     pause: 'recording:pause',
     resume: 'recording:resume',
     appendChunk: 'recording:append-chunk',
+    appendAudio: 'recording:append-audio',
+    audioState: 'recording:audio-state',
     finish: 'recording:finish',
     cancel: 'recording:cancel',
     list: 'recording:list',

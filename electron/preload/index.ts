@@ -34,6 +34,9 @@ const api: OpenScreenApi = {
     update: (patch) => ipcRenderer.invoke(IPC_CHANNELS.settings.update, patch),
     onChange: (listener) => subscribe(IPC_CHANNELS.settings.changed, listener)
   },
+  audio: {
+    getSupport: () => ipcRenderer.invoke(IPC_CHANNELS.audio.getSupport)
+  },
   capture: {
     getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.capture.getSnapshot),
     selectSource: (ref) => ipcRenderer.invoke(IPC_CHANNELS.capture.selectSource, ref),
@@ -47,6 +50,8 @@ const api: OpenScreenApi = {
     pause: () => ipcRenderer.invoke(IPC_CHANNELS.recording.pause),
     resume: () => ipcRenderer.invoke(IPC_CHANNELS.recording.resume),
     appendChunk: (chunk) => ipcRenderer.invoke(IPC_CHANNELS.recording.appendChunk, chunk),
+    appendAudio: (chunk) => ipcRenderer.invoke(IPC_CHANNELS.recording.appendAudio, chunk),
+    reportAudioState: (state) => ipcRenderer.invoke(IPC_CHANNELS.recording.audioState, state),
     finish: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.finish, request),
     cancel: (request) => ipcRenderer.invoke(IPC_CHANNELS.recording.cancel, request),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.recording.list),

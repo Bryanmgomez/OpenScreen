@@ -37,6 +37,11 @@ describe('settingsPatchSchema', () => {
     expect(settingsPatchSchema.safeParse({}).success).toBe(true)
     expect(settingsPatchSchema.safeParse({ appearance: { theme: 'light' } }).success).toBe(true)
     expect(settingsPatchSchema.safeParse({ appearance: { reduceMotion: true } }).success).toBe(true)
+    expect(
+      settingsPatchSchema.safeParse({
+        audio: { microphone: { muted: true }, system: { mode: 'device' }, separateTracks: false }
+      }).success
+    ).toBe(true)
   })
 
   it('rechaza valores fuera de rango', () => {
@@ -47,6 +52,9 @@ describe('settingsPatchSchema', () => {
   it('rechaza claves desconocidas', () => {
     expect(settingsPatchSchema.safeParse({ hack: true }).success).toBe(false)
     expect(settingsPatchSchema.safeParse({ appearance: { theme: 'dark', extra: 1 } }).success).toBe(
+      false
+    )
+    expect(settingsPatchSchema.safeParse({ audio: { microphone: { volume: 3 } } }).success).toBe(
       false
     )
   })
@@ -63,5 +71,26 @@ describe('mergeSettings', () => {
     expect(merged.appearance.theme).toBe('light')
     expect(merged.appearance.reduceMotion).toBe(false)
     expect(DEFAULT_SETTINGS.appearance.theme).toBe('dark')
+  })
+
+  it('combina ajustes parciales de audio sin perder los demás campos', () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, {
+      audio: {
+        microphone: { muted: true },
+        system: { mode: 'device', deviceId: 'cable-1' }
+      }
+    })
+    expect(merged.audio.microphone).toMatchObject({
+      muted: true,
+      volume: DEFAULT_SETTINGS.audio.microphone.volume,
+      deviceId: DEFAULT_SETTINGS.audio.microphone.deviceId
+    })
+    expect(merged.audio.system).toMatchObject({
+      mode: 'device',
+      deviceId: 'cable-1',
+      muteOnCapture: DEFAULT_SETTINGS.audio.system.muteOnCapture
+    })
+    expect(merged.audio.separateTracks).toBe(true)
+    expect(DEFAULT_SETTINGS.audio.microphone.muted).toBe(false)
   })
 })

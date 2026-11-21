@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  audioSettingsSchema,
+  audioTrackSettingsSchema,
+  DEFAULT_AUDIO_SETTINGS
+} from './audio'
 import { captureRegionSchema, sourceRefSchema } from './capture'
 import { recordingFormatSchema, recordingQualitySchema } from './recording'
 
@@ -58,7 +63,8 @@ export const settingsSchema = z.object({
   schemaVersion: z.literal(1).catch(1),
   appearance: appearanceSchema.catch({ theme: 'dark', reduceMotion: false }),
   capture: captureSettingsSchema,
-  recording: recordingSettingsSchema
+  recording: recordingSettingsSchema,
+  audio: audioSettingsSchema.catch(structuredClone(DEFAULT_AUDIO_SETTINGS))
 })
 
 export type Settings = z.infer<typeof settingsSchema>
@@ -67,7 +73,8 @@ export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: 1,
   appearance: { theme: 'dark', reduceMotion: false },
   capture: { source: null, region: null },
-  recording: { ...DEFAULT_RECORDING_SETTINGS }
+  recording: { ...DEFAULT_RECORDING_SETTINGS },
+  audio: structuredClone(DEFAULT_AUDIO_SETTINGS)
 }
 
 /** Actualización parcial recibida por IPC. Estricta: no admite claves desconocidas. */
@@ -95,6 +102,14 @@ export const settingsPatchSchema = z
         format: recordingFormatSchema.optional(),
         fileNameTemplate: z.string().min(1).optional(),
         ffmpegPath: z.string().nullable().optional()
+      })
+      .strict()
+      .optional(),
+    audio: z
+      .object({
+        microphone: audioTrackSettingsSchema.partial().optional(),
+        system: audioSettingsSchema.shape.system.partial().optional(),
+        separateTracks: z.boolean().optional()
       })
       .strict()
       .optional()
@@ -143,6 +158,17 @@ export function mergeSettings(current: Settings, patch: SettingsPatch): Settings
         patch.recording?.ffmpegPath !== undefined
           ? patch.recording.ffmpegPath
           : current.recording.ffmpegPath
+    },
+    audio: {
+      microphone: {
+        ...current.audio.microphone,
+        ...patch.audio?.microphone
+      },
+      system: {
+        ...current.audio.system,
+        ...patch.audio?.system
+      },
+      separateTracks: patch.audio?.separateTracks ?? current.audio.separateTracks
     }
   }
 }

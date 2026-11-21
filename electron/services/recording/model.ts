@@ -95,37 +95,57 @@ export function buildFfmpegArgs(options: {
   output: string
   quality: RecordingQuality
   format: RecordingFormat
+  /** Vídeo + pistas independientes, en este orden: micrófono, sistema. */
+  audioInputs?: readonly string[]
 }): string[] {
-  if (options.format !== 'mp4') return []
-  return [
+  const audioInputs = options.audioInputs ?? []
+  // WebM sin pistas independientes ya sale de MediaRecorder: no se recodifica nada.
+  if (options.format !== 'mp4' && audioInputs.length === 0) return []
+
+  const args = [
     '-hide_banner',
     '-loglevel',
     'error',
     '-y',
     '-i',
     options.input,
+    ...audioInputs.flatMap((path) => ['-i', path]),
     '-map',
-    '0:v:0',
-    '-map',
-    '0:a?',
-    '-c:v',
-    'libx264',
-    '-preset',
-    'veryfast',
-    '-crf',
-    FFMPEG_CRF[options.quality],
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '128k',
-    '-f',
-    'mp4',
-    '-movflags',
-    '+faststart',
-    options.output
+    '0:v:0'
   ]
+
+  if (audioInputs.length > 0) {
+    audioInputs.forEach((_path, index) => args.push('-map', `${index + 1}:a:0`))
+    args.push('-metadata:s:a:0', 'title=Micrófono')
+    if (audioInputs.length > 1) args.push('-metadata:s:a:1', 'title=Audio del sistema')
+  } else {
+    args.push('-map', '0:a?')
+  }
+
+  if (options.format === 'mp4') {
+    args.push(
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      FFMPEG_CRF[options.quality],
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-movflags',
+      '+faststart'
+    )
+  } else {
+    // WebM/Matroska conserva Opus y el vídeo tal cual: no hay generación perdida.
+    args.push('-c', 'copy')
+  }
+
+  args.push('-f', options.format === 'mp4' ? 'mp4' : 'webm', options.output)
+  return args
 }
 
 export function isTempFileName(name: string): boolean {
@@ -139,6 +159,17 @@ export function tempPathFor(finalPath: string): string {
 /** Metadatos mínimos para que la biblioteca pueda mostrar la duración real. */
 export function metadataPathFor(finalPath: string): string {
   return `${finalPath}.openscreen.json`
+}
+
+/** Pista independiente: WebM con Opus, codificada por MediaRecorder en el renderer. */
+export function audioTrackPathFor(finalPath: string, kind: 'microphone' | 'system'): string {
+  const extension = extname(finalPath)
+  const stem = extension ? finalPath.slice(0, -extension.length) : finalPath
+  return `${stem}.${kind}.webm`
+}
+
+export function audioTempPathFor(finalPath: string, kind: 'microphone' | 'system'): string {
+  return `${audioTrackPathFor(finalPath, kind)}.part`
 }
 
 export function displayNameFor(path: string): string {
@@ -161,7 +192,16 @@ export function isPathInside(parent: string, child: string): boolean {
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) && !rel.split(sep).includes('..')
 }
 
-/** Solo se listan contenedores finalizados; los `.part` se ignoran. */
+/** Un archivo de pista independiente no es una grabación por sí sola. */
+export function isAudioTrackFileName(name: string): boolean {
+  return /\.(microphone|system)\.webm$/i.test(name)
+}
+
+/** Solo se listan contenedores finalizados; los `.part` y las pistas independientes se ignoran. */
 export function isFinalRecordingFile(name: string): boolean {
-  return !isTempFileName(name) && /\.(webm|mp4)$/i.test(name)
+  return (
+    !isTempFileName(name) &&
+    !isAudioTrackFileName(name) &&
+    /\.(webm|mp4)$/i.test(name)
+  )
 }

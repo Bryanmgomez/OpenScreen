@@ -12,8 +12,15 @@ import {
   type FileHandle
 } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import type {
+  AudioSupport,
+  AudioTrackFile,
+  AudioTrackKind
+} from '../../../shared/audio'
 import type { CaptureSnapshot, SourceRef } from '../../../shared/capture'
 import type {
+  RecordingAudioChunk,
+  RecordingAudioState,
   RecordingBeginRequest,
   RecordingChunk,
   RecordingFile,
@@ -24,8 +31,14 @@ import type {
   RecordingSessionRequest,
   RecordingStatus
 } from '../../../shared/recording'
+import {
+  EMPTY_RECORDING_AUDIO_STATUS,
+  type RecordingAudioStatus
+} from '../../../shared/recording'
 import type { SettingsService } from '../settings/settingsService'
 import {
+  audioTempPathFor,
+  audioTrackPathFor,
   buildRecordingName,
   canFinish,
   canPause,
@@ -47,6 +60,7 @@ export interface FfmpegPort {
     output: string
     format: RecordingFormat
     quality: RecordingQuality
+    audioInputs?: readonly string[]
   }): Promise<void>
 }
 
@@ -58,25 +72,41 @@ export interface RecordingServiceOptions {
   settings: SettingsService
   capture: CapturePort
   getVideosPath: () => string
+  getAudioSupport: () => AudioSupport
   now?: () => number
   ffmpeg?: FfmpegPort
   reveal?: (path: string) => void
   open?: (path: string) => void
 }
 
-const EMPTY_STATUS: RecordingStatus = {
-  state: 'idle',
-  sessionId: null,
-  source: null,
-  startedAt: null,
-  pausedAt: null,
-  pausedMs: 0,
-  bytesWritten: 0,
-  outputPath: null,
-  tempPath: null,
-  mimeType: null,
-  error: null,
-  lastRecording: null
+const AUDIO_TRACKS: readonly AudioTrackKind[] = ['microphone', 'system']
+
+function emptyAudioStatus(): RecordingAudioStatus {
+  return {
+    support: { ...EMPTY_RECORDING_AUDIO_STATUS.support, notes: [...EMPTY_RECORDING_AUDIO_STATUS.support.notes] },
+    microphone: { ...EMPTY_RECORDING_AUDIO_STATUS.microphone },
+    system: { ...EMPTY_RECORDING_AUDIO_STATUS.system },
+    separateTracks: EMPTY_RECORDING_AUDIO_STATUS.separateTracks,
+    sidecars: []
+  }
+}
+
+function emptyStatus(): RecordingStatus {
+  return {
+    state: 'idle',
+    sessionId: null,
+    source: null,
+    startedAt: null,
+    pausedAt: null,
+    pausedMs: 0,
+    bytesWritten: 0,
+    outputPath: null,
+    tempPath: null,
+    mimeType: null,
+    error: null,
+    lastRecording: null,
+    audio: emptyAudioStatus()
+  }
 }
 
 function messageOf(error: unknown): string {
@@ -93,9 +123,10 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * Dueño del estado de grabación y de los archivos. El renderer solo informa de los eventos
- * del MediaRecorder; aquí se decide si una acción es válida, se escriben los chunks y se
- * publica el estado. Esto evita grabaciones duplicadas y estados inconsistentes.
+ * Dueño del estado de grabación y de los archivos. El renderer informa de los eventos del
+ * MediaRecorder y del estado de cada pista de audio; aquí se decide si una acción es válida,
+ * se escriben los chunks y se publica el estado. Esto evita grabaciones duplicadas y estados
+ * inconsistentes.
  */
 export class RecordingService {
   private readonly now: () => number
@@ -103,11 +134,14 @@ export class RecordingService {
   private readonly revealFile: (path: string) => void
   private readonly openFile: (path: string) => void
   private readonly listeners = new Set<(status: RecordingStatus) => void>()
-  private status: RecordingStatus = { ...EMPTY_STATUS }
+  private status: RecordingStatus = emptyStatus()
   private handle: FileHandle | null = null
   private expectedChunk = 0
   private currentFormat: RecordingFormat = 'webm'
   private transcodePath: string | null = null
+  private readonly audioHandles: Partial<Record<AudioTrackKind, FileHandle>> = {}
+  private readonly expectedAudioChunk: Partial<Record<AudioTrackKind, number>> = {}
+  private readonly audioTemps: Partial<Record<AudioTrackKind, string>> = {}
 
   constructor(private readonly options: RecordingServiceOptions) {
     this.now = options.now ?? Date.now
@@ -120,7 +154,7 @@ export class RecordingService {
   }
 
   getStatus(): RecordingStatus {
-    return { ...this.status }
+    return { ...this.status, audio: { ...this.status.audio, sidecars: [...this.status.audio.sidecars] } }
   }
 
   onStatusChange(listener: (status: RecordingStatus) => void): () => void {
@@ -150,6 +184,20 @@ export class RecordingService {
       throw new Error('MP4 requiere FFmpeg. Instálalo o elige WebM.')
     }
 
+    const support = this.options.getAudioSupport()
+    if (
+      request.audio.system.enabled &&
+      request.audio.system.mode === 'auto' &&
+      support.systemAudio === 'unavailable'
+    ) {
+      throw new Error(
+        'La captura automática del audio del sistema no está disponible en esta plataforma. Elige un dispositivo virtual en modo «Dispositivo» o desactiva esa pista.'
+      )
+    }
+    if (request.audio.system.enabled && request.audio.system.mode === 'device' && !request.audio.system.deviceId) {
+      throw new Error('Selecciona el dispositivo virtual que transporta el audio del sistema.')
+    }
+
     const snapshot = await this.options.capture.getSnapshot()
     if (
       !snapshot.selectionAvailable ||
@@ -161,20 +209,43 @@ export class RecordingService {
 
     const finalPath = await this.reservePath(request)
     const tempPath = tempPathFor(finalPath)
-
     this.handle = await open(tempPath, 'w')
+
+    // Los archivos de pistas se crean solo cuando llega el primer chunk: una grabación sin
+    // audio no deja temporales vacíos.
     this.expectedChunk = 0
     this.currentFormat = request.options.format
     this.transcodePath = null
+    const audio = emptyAudioStatus()
+    audio.support = support
+    audio.separateTracks = request.audio.separateTracks
+    audio.microphone = {
+      kind: 'microphone',
+      enabled: request.audio.microphone.enabled,
+      active: false,
+      deviceId: request.audio.microphone.deviceId,
+      label: null,
+      error: null
+    }
+    audio.system = {
+      kind: 'system',
+      enabled: request.audio.system.enabled,
+      active: false,
+      deviceId: request.audio.system.deviceId,
+      label: null,
+      error: null
+    }
+
     this.status = {
-      ...EMPTY_STATUS,
+      ...emptyStatus(),
       state: 'recording',
       sessionId: randomUUID(),
       source: request.source,
       startedAt: this.now(),
       outputPath: finalPath,
       tempPath,
-      mimeType: request.mimeType
+      mimeType: request.mimeType,
+      audio
     }
     this.emit()
     return this.getStatus()
@@ -196,11 +267,9 @@ export class RecordingService {
     return this.getStatus()
   }
 
-  /** Escribe un chunk en orden. Los eventos desordenados se rechazan en lugar de corromper el vídeo. */
+  /** Escribe un chunk de vídeo en orden. Los eventos desordenados se rechazan. */
   async appendChunk(chunk: RecordingChunk): Promise<RecordingStatus> {
-    if (!this.status.sessionId || chunk.sessionId !== this.status.sessionId) {
-      throw new Error('El chunk pertenece a otra grabación.')
-    }
+    this.assertSession(chunk.sessionId)
     if (!canFinish(this.status.state) || !this.handle) {
       throw new Error('La grabación no está recibiendo datos.')
     }
@@ -218,17 +287,63 @@ export class RecordingService {
     return this.getStatus()
   }
 
+  /** Escribe un chunk de una pista de audio independiente, también en orden. */
+  async appendAudio(chunk: RecordingAudioChunk): Promise<RecordingStatus> {
+    this.assertSession(chunk.sessionId)
+    if (!canFinish(this.status.state) || !this.status.audio.separateTracks || !this.status.audio[chunk.track].enabled) {
+      throw new Error(`La pista ${chunk.track} no está recibiendo datos.`)
+    }
+    const expected = this.expectedAudioChunk[chunk.track] ?? 0
+    if (chunk.index !== expected) {
+      throw new Error(`Chunk de ${chunk.track} fuera de orden: se esperaba ${expected} y llegó ${chunk.index}.`)
+    }
+
+    let handle = this.audioHandles[chunk.track]
+    if (!handle) {
+      const finalPath = this.status.outputPath
+      if (!finalPath) throw new Error('Falta la ruta de la grabación.')
+      const path = audioTempPathFor(finalPath, chunk.track)
+      handle = await open(path, 'w')
+      this.audioHandles[chunk.track] = handle
+      this.audioTemps[chunk.track] = path
+    }
+
+    await handle.write(chunk.data)
+    this.expectedAudioChunk[chunk.track] = expected + 1
+    return this.getStatus()
+  }
+
+  /** El renderer informa de desconexiones y errores sin tumbar toda la grabación. */
+  async reportAudioState(state: RecordingAudioState): Promise<RecordingStatus> {
+    this.assertSession(state.sessionId)
+    const current = state.track === 'microphone' ? this.status.audio.microphone : this.status.audio.system
+    const updated = {
+      ...current,
+      active: state.active,
+      label: state.label,
+      error: state.error
+    }
+    this.status = {
+      ...this.status,
+      audio: {
+        ...this.status.audio,
+        [state.track]: updated
+      }
+    }
+    this.emit()
+    return this.getStatus()
+  }
+
   /** Cierra, finaliza el contenedor y publica la grabación terminada. */
   async finish(request: RecordingFinishRequest): Promise<RecordingStatus> {
-    if (!this.status.sessionId || request.sessionId !== this.status.sessionId) {
-      throw new Error('No hay una grabación activa con esa sesión.')
-    }
+    this.assertSession(request.sessionId)
     if (!canFinish(this.status.state) || !this.handle) {
       throw new Error('La grabación no se puede finalizar desde este estado.')
     }
     if (this.status.bytesWritten === 0) {
-      await this.failActive(new Error('La grabación no produjo datos.'))
-      throw new Error('La grabación no produjo datos.')
+      const error = new Error('La grabación no produjo datos.')
+      await this.failActive(error)
+      throw error
     }
 
     const tempPath = this.status.tempPath
@@ -239,13 +354,24 @@ export class RecordingService {
     this.handle = null
 
     try {
-      if (this.currentFormat === 'mp4') {
+      const tracks = await this.finishAudioTracks(finalPath)
+      const ffmpegNeeded = this.currentFormat === 'mp4' || tracks.length > 0
+      if (ffmpegNeeded) {
+        if (!(await this.ffmpeg.isAvailable())) {
+          // En WebM las pistas ya están guardadas como archivos Opus independientes.
+          if (this.currentFormat !== 'mp4') {
+            await rename(tempPath, finalPath)
+            return this.publishFinished(finalPath, request.durationMs, tracks)
+          }
+          throw new Error('MP4 requiere FFmpeg. Instálalo o elige WebM.')
+        }
         this.transcodePath = `${finalPath}.ffmpeg.part`
         await this.ffmpeg.transcode({
           input: tempPath,
           output: this.transcodePath,
-          format: 'mp4',
-          quality: this.options.settings.get().recording.quality
+          format: this.currentFormat,
+          quality: this.options.settings.get().recording.quality,
+          audioInputs: tracks.map((track) => track.path)
         })
         await rename(this.transcodePath, finalPath)
         this.transcodePath = null
@@ -254,39 +380,20 @@ export class RecordingService {
         await rename(tempPath, finalPath)
       }
 
-      const info = await stat(finalPath)
-      await writeFile(
-        metadataPathFor(finalPath),
-        JSON.stringify({
-          durationMs: request.durationMs,
-          mimeType: this.currentFormat === 'mp4' ? 'video/mp4' : (this.status.mimeType ?? 'video/webm')
-        }),
-        'utf8'
-      )
-      const file: RecordingFile = {
-        path: finalPath,
-        name: finalPath.split(/[\\/]/).pop() ?? 'grabacion.webm',
-        size: info.size,
-        mimeType: this.currentFormat === 'mp4' ? 'video/mp4' : (this.status.mimeType ?? 'video/webm'),
-        durationMs: request.durationMs,
-        createdAt: this.now()
-      }
-      this.status = { ...EMPTY_STATUS, lastRecording: file }
-      this.emit()
-      return this.getStatus()
+      return await this.publishFinished(finalPath, request.durationMs, tracks)
     } catch (error) {
       await this.failActive(error)
       throw error
     }
   }
 
-  /** Cancela y borra el temporal. No deja el motor en estado `recording`. */
+  /** Cancela y borra los temporales. No deja el motor en estado `recording`. */
   async cancel(request: RecordingSessionRequest): Promise<RecordingStatus> {
     if (!this.status.sessionId || request.sessionId !== this.status.sessionId) {
       throw new Error('No hay una grabación activa con esa sesión.')
     }
     await this.cleanupActive()
-    this.status = { ...EMPTY_STATUS }
+    this.status = emptyStatus()
     this.emit()
     return this.getStatus()
   }
@@ -295,7 +402,7 @@ export class RecordingService {
   async dispose(): Promise<void> {
     if (!this.status.sessionId) return
     await this.cleanupActive()
-    this.status = { ...EMPTY_STATUS }
+    this.status = emptyStatus()
     this.emit()
   }
 
@@ -319,7 +426,8 @@ export class RecordingService {
           size: info.size,
           mimeType: entry.name.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'video/webm',
           durationMs: await this.readDuration(path),
-          createdAt: info.mtimeMs
+          createdAt: info.mtimeMs,
+          tracks: await this.readTracks(path)
         })
       } catch {
         // El archivo pudo borrarse mientras se enumeraba; se ignora.
@@ -342,9 +450,80 @@ export class RecordingService {
 
   async delete(path: string): Promise<RecordingList> {
     const target = this.safePath(path)
+    const metadata = await this.readTracks(target)
     await unlink(target)
+    for (const track of metadata) {
+      await rm(track.path, { force: true }).catch(() => undefined)
+    }
     await rm(metadataPathFor(target), { force: true })
     return this.list()
+  }
+
+  private assertSession(sessionId: string): void {
+    if (!this.status.sessionId) throw new Error('No hay una grabación activa con esa sesión.')
+    if (sessionId !== this.status.sessionId) {
+      throw new Error('La sesión pertenece a otra grabación.')
+    }
+  }
+
+  private async publishFinished(
+    finalPath: string,
+    durationMs: number,
+    tracks: AudioTrackFile[]
+  ): Promise<RecordingStatus> {
+    const info = await stat(finalPath)
+    const mimeType = this.currentFormat === 'mp4' ? 'video/mp4' : (this.status.mimeType ?? 'video/webm')
+    await writeFile(
+      metadataPathFor(finalPath),
+      JSON.stringify({ durationMs, mimeType, tracks }),
+      'utf8'
+    )
+    const file: RecordingFile = {
+      path: finalPath,
+      name: finalPath.split(/[\\/]/).pop() ?? 'grabacion.webm',
+      size: info.size,
+      mimeType,
+      durationMs,
+      createdAt: this.now(),
+      tracks
+    }
+    this.status = {
+      ...emptyStatus(),
+      lastRecording: file,
+      audio: {
+        ...this.status.audio,
+        microphone: { ...this.status.audio.microphone, active: false },
+        system: { ...this.status.audio.system, active: false },
+        sidecars: [...tracks]
+      }
+    }
+    this.emit()
+    return this.getStatus()
+  }
+
+  private async finishAudioTracks(finalPath: string): Promise<AudioTrackFile[]> {
+    const tracks: AudioTrackFile[] = []
+    await this.closeAudioHandles()
+
+    for (const kind of AUDIO_TRACKS) {
+      const temp = this.audioTemps[kind]
+      if (!temp) continue
+      if (!(await exists(temp))) continue
+      const info = await stat(temp)
+      if (info.size === 0) {
+        await rm(temp, { force: true })
+        continue
+      }
+      const path = audioTrackPathFor(finalPath, kind)
+      await rename(temp, path)
+      tracks.push({
+        kind,
+        path,
+        name: path.split(/[\\/]/).pop() ?? `${kind}.webm`,
+        mimeType: 'audio/webm;codecs=opus'
+      })
+    }
+    return tracks
   }
 
   private async reservePath(request: RecordingBeginRequest): Promise<string> {
@@ -364,24 +543,52 @@ export class RecordingService {
         ordinal
       )
       const candidate = resolve(dir, name)
-      if (!(await exists(candidate)) && !(await exists(tempPathFor(candidate)))) {
-        return candidate
-      }
+      const candidates = [
+        candidate,
+        tempPathFor(candidate),
+        ...(request.audio.separateTracks
+          ? AUDIO_TRACKS.flatMap((kind) => [
+              audioTrackPathFor(candidate, kind),
+              audioTempPathFor(candidate, kind)
+            ])
+          : [])
+      ]
+      const conflicts = await Promise.all(candidates.map((path) => exists(path)))
+      if (!conflicts.some(Boolean)) return candidate
     }
     throw new Error('No se encontró un nombre de archivo libre.')
   }
 
   private async readDuration(path: string): Promise<number> {
+    const metadata = await this.readMetadata(path)
+    const value = metadata?.durationMs
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
+  }
+
+  private async readTracks(path: string): Promise<AudioTrackFile[]> {
+    const metadata = await this.readMetadata(path)
+    if (!Array.isArray(metadata?.tracks)) return []
+    const dir = this.getOutputDir()
+    return metadata.tracks.filter((track: unknown): track is AudioTrackFile => {
+      if (typeof track !== 'object' || track === null) return false
+      const value = track as Partial<AudioTrackFile>
+      return (
+        (value.kind === 'microphone' || value.kind === 'system') &&
+        typeof value.path === 'string' &&
+        typeof value.name === 'string' &&
+        typeof value.mimeType === 'string' &&
+        isPathInside(dir, value.path)
+      )
+    })
+  }
+
+  private async readMetadata(path: string): Promise<Record<string, unknown> | null> {
     try {
       const raw: unknown = JSON.parse(await readFile(metadataPathFor(path), 'utf8'))
-      if (typeof raw === 'object' && raw !== null && 'durationMs' in raw) {
-        const value = (raw as { durationMs?: unknown }).durationMs
-        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
-      }
+      return typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null
     } catch {
-      // Grabaciones anteriores pueden no tener metadatos; se muestra duración desconocida.
+      return null
     }
-    return 0
   }
 
   private safePath(path: string): string {
@@ -392,23 +599,38 @@ export class RecordingService {
     return target
   }
 
+  private async closeAudioHandles(): Promise<void> {
+    for (const kind of AUDIO_TRACKS) {
+      const handle = this.audioHandles[kind]
+      if (!handle) continue
+      await handle.close().catch(() => undefined)
+      delete this.audioHandles[kind]
+    }
+  }
+
   private async cleanupActive(): Promise<void> {
     if (this.handle) {
       await this.handle.close().catch(() => undefined)
       this.handle = null
     }
-    const paths = [this.status.tempPath, this.transcodePath].filter(
-      (value): value is string => Boolean(value)
-    )
+    await this.closeAudioHandles()
+    const paths = [
+      this.status.tempPath,
+      this.transcodePath,
+      ...AUDIO_TRACKS.map((kind) => this.audioTemps[kind])
+    ].filter((value): value is string => Boolean(value))
     for (const path of paths) await rm(path, { force: true }).catch(() => undefined)
     this.expectedChunk = 0
+    for (const kind of AUDIO_TRACKS) delete this.expectedAudioChunk[kind]
+    for (const kind of AUDIO_TRACKS) delete this.audioTemps[kind]
     this.transcodePath = null
   }
 
   private async failActive(error: unknown): Promise<void> {
     const lastRecording = this.status.lastRecording
+    const audio = this.status.audio
     await this.cleanupActive()
-    this.status = { ...EMPTY_STATUS, state: 'error', error: messageOf(error), lastRecording }
+    this.status = { ...emptyStatus(), state: 'error', error: messageOf(error), lastRecording, audio }
     this.emit()
   }
 

@@ -8,6 +8,7 @@ import { HomePage } from '@/pages/HomePage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { RecordingPage } from '@/pages/RecordingPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { useAudioStore } from '@/store/audioStore'
 import { useRecordingStore } from '@/store/recordingStore'
 import { useSettingsStore } from '@/store/settingsStore'
 
@@ -19,6 +20,7 @@ export function App() {
   useEffect(() => {
     void init()
     void useRecordingStore.getState().init()
+    void useAudioStore.getState().init()
   }, [init])
 
   useApplyAppearance(settings?.appearance)

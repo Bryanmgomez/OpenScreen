@@ -1,4 +1,11 @@
 import { z } from 'zod'
+import {
+  audioSettingsSchema,
+  audioSupportSchema,
+  audioTrackFileSchema,
+  audioTrackKindSchema,
+  audioTrackRuntimeSchema
+} from './audio'
 import { sourceRefSchema } from './capture'
 
 /**
@@ -42,10 +49,50 @@ export const recordingFileSchema = z
     size: z.number().int().nonnegative(),
     mimeType: z.string(),
     durationMs: z.number().nonnegative(),
-    createdAt: z.number()
+    createdAt: z.number(),
+    tracks: z.array(audioTrackFileSchema)
   })
   .strict()
 export type RecordingFile = z.infer<typeof recordingFileSchema>
+
+export const recordingAudioStatusSchema = z
+  .object({
+    support: audioSupportSchema,
+    microphone: audioTrackRuntimeSchema,
+    system: audioTrackRuntimeSchema,
+    separateTracks: z.boolean(),
+    sidecars: z.array(audioTrackFileSchema)
+  })
+  .strict()
+export type RecordingAudioStatus = z.infer<typeof recordingAudioStatusSchema>
+
+export const EMPTY_RECORDING_AUDIO_STATUS: RecordingAudioStatus = {
+  support: {
+    platform: 'other',
+    microphonePermission: 'unknown',
+    systemAudio: 'unavailable',
+    systemMethod: 'none',
+    notes: []
+  },
+  microphone: {
+    kind: 'microphone',
+    enabled: false,
+    active: false,
+    deviceId: null,
+    label: null,
+    error: null
+  },
+  system: {
+    kind: 'system',
+    enabled: false,
+    active: false,
+    deviceId: null,
+    label: null,
+    error: null
+  },
+  separateTracks: true,
+  sidecars: []
+}
 
 export const recordingStatusSchema = z.object({
   state: recordingStateSchema,
@@ -59,7 +106,8 @@ export const recordingStatusSchema = z.object({
   tempPath: z.string().nullable(),
   mimeType: z.string().nullable(),
   error: z.string().nullable(),
-  lastRecording: recordingFileSchema.nullable()
+  lastRecording: recordingFileSchema.nullable(),
+  audio: recordingAudioStatusSchema
 })
 export type RecordingStatus = z.infer<typeof recordingStatusSchema>
 
@@ -75,13 +123,15 @@ export const EMPTY_RECORDING_STATUS: RecordingStatus = {
   tempPath: null,
   mimeType: null,
   error: null,
-  lastRecording: null
+  lastRecording: null,
+  audio: EMPTY_RECORDING_AUDIO_STATUS
 }
 
 export const recordingBeginRequestSchema = z
   .object({
     source: sourceRefSchema,
     options: recordingOptionsSchema,
+    audio: audioSettingsSchema,
     mimeType: z.string().min(1),
     extension: z.enum(['webm', 'mp4'])
   })
@@ -96,6 +146,29 @@ export const recordingChunkSchema = z
   })
   .strict()
 export type RecordingChunk = z.infer<typeof recordingChunkSchema>
+
+/** Chunk de una pista de audio independiente (Opus dentro de WebM). */
+export const recordingAudioChunkSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    track: audioTrackKindSchema,
+    index: z.number().int().nonnegative(),
+    data: z.custom<Uint8Array>((value) => value instanceof Uint8Array, 'Se esperaba Uint8Array')
+  })
+  .strict()
+export type RecordingAudioChunk = z.infer<typeof recordingAudioChunkSchema>
+
+/** El renderer informa de cada fuente de audio: conseguida, desconectada o con error. */
+export const recordingAudioStateSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    track: audioTrackKindSchema,
+    active: z.boolean(),
+    label: z.string().nullable(),
+    error: z.string().nullable()
+  })
+  .strict()
+export type RecordingAudioState = z.infer<typeof recordingAudioStateSchema>
 
 export const recordingFinishRequestSchema = z
   .object({

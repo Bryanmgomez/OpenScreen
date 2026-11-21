@@ -1,12 +1,15 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  audioTempPathFor,
+  audioTrackPathFor,
   buildFfmpegArgs,
   buildRecordingName,
   canFinish,
   canPause,
   canResume,
   canStart,
+  isAudioTrackFileName,
   isFinalRecordingFile,
   isPathInside,
   metadataPathFor,
@@ -91,6 +94,25 @@ describe('modelo de grabación', () => {
     expect(args.every((arg) => typeof arg === 'string')).toBe(true)
   })
 
+  it('mantiene dos pistas de audio independientes sin cadenas de shell', () => {
+    const args = buildFfmpegArgs({
+      input: 'video.webm',
+      output: 'final.webm',
+      format: 'webm',
+      quality: 'balanced',
+      audioInputs: ['video.microphone.webm', 'video.system.webm']
+    })
+    const joined = args.join(' ')
+    expect(joined).toContain('-i video.microphone.webm')
+    expect(joined).toContain('-i video.system.webm')
+    expect(joined).toContain('-map 1:a:0')
+    expect(joined).toContain('-map 2:a:0')
+    expect(joined).toContain('title=Micrófono')
+    expect(joined).toContain('title=Audio del sistema')
+    expect(args).toContain('copy')
+    expect(args.every((arg) => typeof arg === 'string')).toBe(true)
+  })
+
   it('resuelve y delimita rutas de salida', () => {
     const videos = resolve('C:/Videos')
     expect(resolveOutputDir(null, videos)).toBe(videos)
@@ -99,6 +121,10 @@ describe('modelo de grabación', () => {
     expect(isPathInside(videos, resolve(videos, '../secret.webm'))).toBe(false)
     expect(isFinalRecordingFile('a.webm')).toBe(true)
     expect(isFinalRecordingFile('a.webm.part')).toBe(false)
+    expect(isFinalRecordingFile('a.microphone.webm')).toBe(false)
+    expect(isAudioTrackFileName('a.system.webm')).toBe(true)
+    expect(audioTrackPathFor('a.mp4', 'microphone')).toBe('a.microphone.webm')
+    expect(audioTempPathFor('a.mp4', 'system')).toBe('a.system.webm.part')
     expect(tempPathFor('a.webm')).toBe('a.webm.part')
     expect(metadataPathFor('a.webm')).toBe('a.webm.openscreen.json')
   })

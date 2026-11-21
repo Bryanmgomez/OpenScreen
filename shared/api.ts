@@ -1,3 +1,4 @@
+import type { AudioSupport } from './audio'
 import type {
   CaptureRegion,
   CaptureSnapshot,
@@ -5,6 +6,8 @@ import type {
 } from './capture'
 import type {
   RecordingBeginRequest,
+  RecordingAudioChunk,
+  RecordingAudioState,
   RecordingChunk,
   RecordingFilePath,
   RecordingFinishRequest,
@@ -62,6 +65,10 @@ export interface OpenScreenApi {
     clearSelection(): Promise<CaptureSnapshot>
     onSourcesChange(listener: (snapshot: CaptureSnapshot) => void): Unsubscribe
   }
+  /** Capacidades de audio y permisos decididas en main. */
+  audio: {
+    getSupport(): Promise<AudioSupport>
+  }
   /** Motor de grabación: main es dueño del estado y de los archivos. */
   recording: {
     getStatus(): Promise<RecordingStatus>
@@ -69,6 +76,8 @@ export interface OpenScreenApi {
     pause(): Promise<RecordingStatus>
     resume(): Promise<RecordingStatus>
     appendChunk(chunk: RecordingChunk): Promise<RecordingStatus>
+    appendAudio(chunk: RecordingAudioChunk): Promise<RecordingStatus>
+    reportAudioState(state: RecordingAudioState): Promise<RecordingStatus>
     finish(request: RecordingFinishRequest): Promise<RecordingStatus>
     cancel(request: RecordingSessionRequest): Promise<RecordingStatus>
     list(): Promise<RecordingList>

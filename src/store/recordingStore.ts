@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Unsubscribe } from '@shared/api'
+import type { AudioSettings, AudioSupport, AudioTrackKind } from '@shared/audio'
 import type { SourceRef } from '@shared/capture'
 import {
   chooseRecorderMimeType,
@@ -9,12 +10,20 @@ import {
   type RecordingOptions,
   type RecordingStatus
 } from '@shared/recording'
+import {
+  pauseAudioEngine,
+  resumeAudioEngine,
+  startAudioEngine,
+  stopAudioEngine
+} from '@/audio/audioEngine'
 import { getApi } from '@/services/ipc'
 import { toMessage } from '@/utils/errors'
 
 export interface StartRecordingInput {
   source: SourceRef
   options: RecordingOptions
+  audio: AudioSettings
+  support: AudioSupport
 }
 
 interface RecordingState {
@@ -50,6 +59,7 @@ let activeSessionId: string | null = null
 let currentMimeType = ''
 let chunkIndex = 0
 let appendChain: Promise<void> = Promise.resolve()
+let audioAppendChain: Promise<void> = Promise.resolve()
 let appendFailure: string | null = null
 let discardCurrent = false
 
@@ -97,8 +107,20 @@ function cleanup(): void {
   currentMimeType = ''
   chunkIndex = 0
   appendChain = Promise.resolve()
+  audioAppendChain = Promise.resolve()
   appendFailure = null
   discardCurrent = false
+}
+
+function reportAudioState(
+  track: AudioTrackKind,
+  report: { active: boolean; label: string | null; error: string | null }
+): void {
+  const sessionId = activeSessionId
+  if (!sessionId) return
+  void getApi()
+    .recording.reportAudioState({ sessionId, track, ...report })
+    .catch(() => undefined)
 }
 
 /** Dueño del `MediaRecorder` del renderer. El archivo y el estado los controla main. */
@@ -135,7 +157,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     }
   },
 
-  start: async ({ source, options }) => {
+  start: async ({ source, options, audio, support }) => {
     if (recorder || activeSessionId) {
       set({ error: 'Ya hay una grabación en curso.' })
       return
@@ -149,13 +171,18 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     let acquired: MediaStream | null = null
 
     try {
-      // Debe ocurrir dentro del gesto del usuario: main concede la fuente ya seleccionada.
+      const wantsSystemAudio =
+        audio.system.enabled &&
+        audio.system.mode === 'auto' &&
+        support.systemAudio !== 'unavailable'
+      // Debe ocurrir dentro del gesto del usuario: main concede la fuente ya seleccionada
+      // y, en Windows, el loopback del sistema si la pista está activada.
       acquired = await navigator.mediaDevices.getDisplayMedia({
         video: {
           cursor: options.showCursor ? 'always' : 'never'
         } as MediaTrackConstraints,
-        audio: false,
-        systemAudio: 'exclude',
+        audio: wantsSystemAudio,
+        systemAudio: wantsSystemAudio ? 'include' : 'exclude',
         surfaceSwitching: 'exclude'
       } as DisplayMediaStreamOptions)
       stream = acquired
@@ -179,6 +206,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
       const begun = await getApi().recording.begin({
         source,
         options,
+        audio,
         mimeType,
         extension: options.format
       })
@@ -188,11 +216,42 @@ export const useRecordingStore = create<RecordingState>((set) => ({
       appendFailure = null
       discardCurrent = false
       appendChain = Promise.resolve()
+      audioAppendChain = Promise.resolve()
       set({ status: begun })
 
-      const nextRecorder = new MediaRecorder(acquired, {
+      const finalStream = await startAudioEngine({
+        plan: audio,
+        support,
+        displayStream: acquired,
+        callbacks: {
+          onChunk: (audioTrack, index, data) => {
+            const sessionId = activeSessionId
+            if (!sessionId || discardCurrent || appendFailure) return
+            const bytes = data.arrayBuffer()
+            audioAppendChain = audioAppendChain.then(async () => {
+              try {
+                await getApi().recording.appendAudio({
+                  sessionId,
+                  track: audioTrack,
+                  index,
+                  data: new Uint8Array(await bytes)
+                })
+              } catch (error) {
+                appendFailure = toMessage(error)
+                set({ error: appendFailure })
+                discardCurrent = true
+                if (recorder && recorder.state !== 'inactive') recorder.stop()
+              }
+            })
+          },
+          onReport: (audioTrack, report) => reportAudioState(audioTrack, report)
+        }
+      })
+
+      const nextRecorder = new MediaRecorder(finalStream, {
         mimeType,
-        videoBitsPerSecond: QUALITY_BITRATES[options.quality]
+        videoBitsPerSecond: QUALITY_BITRATES[options.quality],
+        audioBitsPerSecond: 128_000
       })
       recorder = nextRecorder
 
@@ -224,6 +283,8 @@ export const useRecordingStore = create<RecordingState>((set) => ({
         const sessionId = activeSessionId
         const mime = currentMimeType
         await appendChain
+        await stopAudioEngine()
+        await audioAppendChain
 
         if (!sessionId || discardCurrent || appendFailure) {
           if (sessionId && (discardCurrent || appendFailure)) {
@@ -278,6 +339,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
           // Se limpia igualmente el estado local.
         }
       }
+      await stopAudioEngine()
       stopTracks()
       cleanup()
       set({ busy: false, error: toMessage(error) })
@@ -289,6 +351,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     set({ busy: true })
     try {
       recorder.pause()
+      pauseAudioEngine()
       set({ status: await getApi().recording.pause() })
     } catch (error) {
       set({ error: toMessage(error) })
@@ -302,6 +365,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     set({ busy: true })
     try {
       recorder.resume()
+      resumeAudioEngine()
       set({ status: await getApi().recording.resume() })
     } catch (error) {
       set({ error: toMessage(error) })
@@ -316,6 +380,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     try {
       recorder.stop()
     } catch (error) {
+      await stopAudioEngine()
       set({ error: toMessage(error), busy: false })
     }
   },
@@ -325,6 +390,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
     if (!sessionId) return
     discardCurrent = true
     if (recorder && recorder.state !== 'inactive') recorder.stop()
+    await stopAudioEngine()
     try {
       set({ status: await getApi().recording.cancel({ sessionId }) })
     } catch (error) {

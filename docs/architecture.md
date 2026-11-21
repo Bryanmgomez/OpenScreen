@@ -58,7 +58,7 @@ Se evitó una librería de componentes o Tailwind para no sumar dependencias. Lo
 ## Cómo encajarán las fases siguientes
 
 - **Captura (2, completada):** la Sesión 03 enumera fuentes con `desktopCapturer`/`screen`, permite elegirlas y muestra vista previa real. La Sesión 04 añade el motor: el renderer capta con `MediaRecorder` y main es dueño del estado, de los chunks y de los archivos. `setDisplayMediaRequestHandler` concede exactamente la fuente elegida; si caducó, la grabación se rechaza.
-- **Audio (3):** mezcla y medidores con Web Audio API en el renderer; dispositivos y permisos coordinados desde main.
+- **Audio (3, completado en la Sesión 05):** mezcla y medidores con Web Audio API en el renderer; dispositivos y permisos coordinados desde main. El `loopback` de Windows se verificó con audio real; macOS/Linux requieren un dispositivo virtual no verificado por OpenScreen.
 - **Codificación (4):** FFmpeg ya se ejecuta como proceso hijo desde main con arreglos de argumentos cuando se elige MP4. La calidad se controla con CRF (`18`/`23`/`32`). Si `MediaRecorder` no ofrece la fiabilidad requerida para nuevos casos (p. ej. 120 FPS o audio del sistema en Windows), se evaluará una solución nativa complementaria en lugar de simularla.
 
 ## Interfaz (Sesión 02)
@@ -97,3 +97,41 @@ Se evitó una librería de componentes o Tailwind para no sumar dependencias. Lo
   las adiciones son compatibles y usan `.catch`).
 - Verificación real: la app compilada grabó un monitor físico con pausa/reanudación y produjo un
   WebM reproducible con cabecera EBML válida, listado después por la biblioteca.
+
+## Audio (Sesión 05)
+
+- `shared/audio.ts`: contrato estricto de dispositivos, ajustes, permisos, capacidades y pistas.
+  `volume` es ganancia lineal y `muted` se traduce a ganancia 0.
+- `electron/services/audio/AudioService`: consulta el permiso real de micrófono con
+  `systemPreferences` y publica capacidades. Windows declara `systemAudio: available` porque se
+  verificó con audio real; macOS/Linux declaran `unavailable` y no simulan captura del sistema.
+- `resolveSystemAudioGrant`: concede `loopback`/`loopbackWithMute` solo en Windows, con la pista
+  activa y el modo automático; macOS/Linux requieren un dispositivo virtual elegido por el usuario.
+- `src/audio/audioEngine.ts`: `getUserMedia` para micrófono/dispositivo virtual, pista de audio del
+  sistema desde el handler de main, `GainNode`/`AnalyserNode` para volumen, silencio y niveles, y
+  `MediaRecorder` por fuente para Opus/WebM independiente. Las pistas independientes se crean solo
+  cuando llega el primer chunk, sin temporales vacíos.
+- `RecordingService`: escribe y valida los chunks de audio por separado, informa de desconexiones y
+  guarda cada pista como `<nombre>.microphone.webm` / `<nombre>.system.webm`. FFmpeg puede unirlas
+  en un único contenedor con `-map` por entrada (sin duplicar la pista mezclada del vídeo).
+- Ajustes persistentes: micrófono y sistema con dispositivo, volumen, mute, modo (`auto`/`device`),
+  `muteOnCapture` y `separateTracks`. La interfaz los expone en Ajustes > Audio y en el mezclador
+  de la página de grabación.
+- La eliminación de una grabación borra también sus pistas y metadatos; la biblioteca no muestra los
+  archivos de audio sueltos como si fueran vídeos.
+
+### Verificación real de audio (Windows 11, Electron 45.4.1)
+
+Se grabó la pantalla completa con el mezclador activo mientras se reproducía un tono de 440 Hz y
+se decodificaron los archivos escritos por la app:
+
+| Archivo | Duración | RMS | Pico | Resultado |
+| --- | --- | --- | --- | --- |
+| `<nombre>.webm` (vídeo) | 3,07 s | — | — | Cabecera EBML `1a45dfa3`, 1,6 MB |
+| `<nombre>.microphone.webm` | 2,94 s | 0,001 | 0,018 | Audio real del dispositivo (ruido ambiente; nadie habló) |
+| `<nombre>.system.webm` | 2,94 s | 0,081 | 0,315 | Tono de 440 Hz capturado desde el escritorio |
+
+El loopback se concedió con `loopbackWithMute`, por lo que el tono no se repitió en la salida. Las
+tres pistas se listan en los metadatos y ningún archivo `.part` quedó tras finalizar. macOS y Linux
+no se presentan como compatibles: la captura automática allí requiere un dispositivo virtual no
+probado por OpenScreen.

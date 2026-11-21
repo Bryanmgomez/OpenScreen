@@ -57,13 +57,13 @@ export function HomePage() {
             <PendingControl def={C.fps} />
           </SettingRow>
           <SettingRow label="Audio del sistema">
-            <PendingControl def={C.systemAudio} />
+            <StatusIndicator tone="success" label="Mezclador disponible" />
           </SettingRow>
           <SettingRow label="Micrófono">
-            <PendingControl def={C.microphone} />
+            <Link className="btn btn--ghost" to="/settings">Configurar</Link>
           </SettingRow>
           <div className="panel__note">
-            <Mic size={12} /> Video: Fase 4 · Audio: Fase 3
+            <Mic size={12} /> Audio: Sesión 05 · Video: Fase 4
           </div>
         </Panel>
       </div>

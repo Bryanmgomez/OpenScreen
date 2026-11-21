@@ -36,6 +36,7 @@ export class FfmpegService {
     output: string
     format: RecordingFormat
     quality: RecordingQuality
+    audioInputs?: readonly string[]
   }): Promise<void> {
     const args = buildFfmpegArgs(options)
     if (args.length === 0) return

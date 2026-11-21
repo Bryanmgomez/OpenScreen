@@ -1,5 +1,7 @@
 import { app, BrowserWindow, session, shell } from 'electron'
 import { join } from 'node:path'
+import { AudioService } from '../services/audio/audioService'
+import { resolveSystemAudioGrant } from '../services/audio/model'
 import { CaptureService } from '../services/capture/captureService'
 import { FfmpegService } from '../services/recording/ffmpegService'
 import { RecordingService } from '../services/recording/recordingService'
@@ -40,19 +42,21 @@ if (!app.requestSingleInstanceLock()) {
 
       const settings = new SettingsService(join(app.getPath('userData'), 'settings.json'))
       await settings.load()
+      const audioService = new AudioService()
       const capture = new CaptureService(settings)
       const ffmpeg = new FfmpegService(() => settings.get().recording.ffmpegPath)
       const recording = new RecordingService({
         settings,
         capture,
         getVideosPath: () => app.getPath('videos'),
+        getAudioSupport: () => audioService.getSupport(),
         ffmpeg,
         reveal: (path) => shell.showItemInFolder(path),
         open: (path) => {
           void shell.openPath(path)
         }
       })
-      registerIpcHandlers({ settings, capture, recording })
+      registerIpcHandlers({ settings, audio: audioService, capture, recording })
       capture.startWatching()
       app.on('before-quit', (event) => {
         if (quitting) return
@@ -70,10 +74,21 @@ if (!app.requestSingleInstanceLock()) {
        * pide un stream y main concede exactamente la fuente que el usuario eligió.
        * Si la referencia caducó, se deniega en lugar de capturar otra cosa.
        */
-      session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+      session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
         try {
           const source = await capture.resolveSelectedSource()
-          callback(source ? { video: source } : null)
+          if (!source) return callback(null)
+          const support = audioService.getSupport()
+          const systemAudio = resolveSystemAudioGrant({
+            platform: support.platform,
+            requested: request.audioRequested,
+            support: support.systemAudio,
+            settings: settings.get().audio
+          })
+          callback({
+            video: source,
+            ...(systemAudio ? { audio: systemAudio } : {})
+          })
         } catch {
           callback(null)
         }

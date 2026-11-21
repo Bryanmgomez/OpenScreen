@@ -2,6 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_AUDIO_SETTINGS, type AudioSupport } from '@shared/audio'
 import type { CaptureSnapshot, SourceRef } from '@shared/capture'
 import type {
   RecordingBeginRequest,
@@ -27,10 +28,19 @@ const options = {
   format: 'webm'
 } as const
 
+const audioSupport: AudioSupport = {
+  platform: 'win32',
+  microphonePermission: 'granted',
+  systemAudio: 'available',
+  systemMethod: 'electron-loopback',
+  notes: []
+}
+
 function beginRequest(format: RecordingFormat = 'webm'): RecordingBeginRequest {
   return {
     source,
     options: { ...options, format },
+    audio: structuredClone(DEFAULT_AUDIO_SETTINGS),
     mimeType: format === 'mp4' ? 'video/mp4' : 'video/webm;codecs=vp8',
     extension: format
   }
@@ -51,6 +61,7 @@ type TranscodeFn = (options: {
   output: string
   format: RecordingFormat
   quality: RecordingQuality
+  audioInputs?: readonly string[]
 }) => Promise<void>
 
 function fakeFfmpeg(transcode: TranscodeFn = vi.fn(async () => undefined)): FfmpegPort & { transcode: TranscodeFn } {
@@ -81,8 +92,9 @@ describe('RecordingService (integración con archivos reales)', () => {
       settings,
       capture: capturePort(),
       getVideosPath: () => videos,
-      now: () => now
-      , ffmpeg
+      getAudioSupport: () => audioSupport,
+      now: () => now,
+      ffmpeg
     })
   }
 
@@ -227,5 +239,37 @@ describe('RecordingService (integración con archivos reales)', () => {
     const service = createService({ isAvailable: async () => false, transcode: async () => undefined })
     await expect(service.begin(beginRequest('mp4'))).rejects.toThrow(/MP4 requiere FFmpeg/)
     expect(service.getStatus().state).toBe('idle')
+  })
+
+  it('guarda micrófono y sistema en pistas Opus/WebM independientes', async () => {
+    const service = createService({ isAvailable: async () => false, transcode: async () => undefined })
+    const begun = await service.begin(beginRequest())
+    const sessionId = begun.sessionId as string
+
+    await service.appendChunk({ sessionId, index: 0, data: new Uint8Array([1, 2, 3]) })
+    await service.appendAudio({ sessionId, track: 'microphone', index: 0, data: new Uint8Array([10]) })
+    await service.appendAudio({ sessionId, track: 'system', index: 0, data: new Uint8Array([20]) })
+    await expect(
+      service.appendAudio({ sessionId, track: 'microphone', index: 2, data: new Uint8Array([30]) })
+    ).rejects.toThrow(/fuera de orden/)
+
+    const finished = await service.finish({ sessionId, durationMs: 2000, mimeType: begun.mimeType as string })
+    expect(finished.lastRecording?.tracks.map((track) => track.kind)).toEqual([
+      'microphone',
+      'system'
+    ])
+    expect(finished.audio.sidecars).toHaveLength(2)
+
+    const files = await readdir(videos)
+    expect(files.some((name) => /\.microphone\.webm$/.test(name))).toBe(true)
+    expect(files.some((name) => /\.system\.webm$/.test(name))).toBe(true)
+    expect(files.some((name) => /\.part$/.test(name))).toBe(false)
+
+    const list = await service.list()
+    expect(list).toHaveLength(1)
+    const raw: unknown = JSON.parse(
+      await readFile(metadataPathFor(finished.lastRecording?.path as string), 'utf8')
+    )
+    expect(raw).toMatchObject({ durationMs: 2000, tracks: [{ kind: 'microphone' }, { kind: 'system' }] })
   })
 })

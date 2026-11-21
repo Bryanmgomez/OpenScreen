@@ -20,11 +20,14 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
 | `capture:set-region` | invoke | `CaptureRegion` (estricto) | `CaptureSnapshot` |
 | `capture:clear-selection` | invoke | — | `CaptureSnapshot` |
 | `capture:sources-changed` | evento main → renderer | — | `CaptureSnapshot` |
+| `audio:get-support` | invoke | — | `AudioSupport` (capacidades reales; nunca compatibilidad supuesta) |
 | `recording:get-status` | invoke | — | `RecordingStatus` |
 | `recording:begin` | invoke | `RecordingBeginRequest` (estricto) | `RecordingStatus` |
 | `recording:pause` | invoke | — | `RecordingStatus` |
 | `recording:resume` | invoke | — | `RecordingStatus` |
 | `recording:append-chunk` | invoke | `RecordingChunk` (estricto) | `RecordingStatus` |
+| `recording:append-audio` | invoke | `RecordingAudioChunk` (estricto) | `RecordingStatus` |
+| `recording:audio-state` | invoke | `RecordingAudioState` (estricto) | `RecordingStatus` |
 | `recording:finish` | invoke | `RecordingFinishRequest` (estricto) | `RecordingStatus` |
 | `recording:cancel` | invoke | `RecordingSessionRequest` (estricto) | `RecordingStatus` |
 | `recording:list` | invoke | — | `RecordingList` |
@@ -45,5 +48,7 @@ La API completa que ve el renderer es `window.openscreen` (contrato en `shared/a
 5. El estado de grabación y los archivos los controla main: solo hay una sesión activa, los chunks
    se escriben en orden y las rutas de reveal/open/delete se restringen a la carpeta de salida.
 6. FFmpeg se lanza con arreglos de argumentos; nunca se concatena una cadena de shell.
+7. El permiso `media` se concede solo para audio: la cámara sigue bloqueada. El loopback del
+   sistema lo concede main solo cuando la plataforma y los ajustes lo permiten.
 
 Para añadir un canal, sigue los pasos de [CONTRIBUTING.md](../CONTRIBUTING.md).

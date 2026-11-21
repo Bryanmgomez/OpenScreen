@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import { IPC_CHANNELS } from '../../../shared/channels'
 import {
+  recordingAudioChunkSchema,
+  recordingAudioStateSchema,
   recordingBeginRequestSchema,
   recordingChunkSchema,
   recordingFilePathSchema,
@@ -21,6 +23,8 @@ export function registerRecordingHandlers(recording: RecordingService): void {
   handle(C.pause, z.undefined(), () => recording.pause())
   handle(C.resume, z.undefined(), () => recording.resume())
   handle(C.appendChunk, recordingChunkSchema, (chunk) => recording.appendChunk(chunk))
+  handle(C.appendAudio, recordingAudioChunkSchema, (chunk) => recording.appendAudio(chunk))
+  handle(C.audioState, recordingAudioStateSchema, (state) => recording.reportAudioState(state))
   handle(C.finish, recordingFinishRequestSchema, (request) => recording.finish(request))
   handle(C.cancel, recordingSessionRequestSchema, (request) => recording.cancel(request))
   handle(C.list, z.undefined(), () => recording.list())

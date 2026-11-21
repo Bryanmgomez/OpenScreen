@@ -43,18 +43,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDef[] = [
     icon: Video,
     pending: { phase: 4, groups: [{ title: 'Salida de video', controls: [C.resolution, C.fps] }] }
   },
-  {
-    id: 'audio',
-    label: 'Audio',
-    icon: Mic,
-    pending: {
-      phase: 3,
-      groups: [
-        { title: 'Fuentes', controls: [C.systemAudio, C.microphone, C.separateTracks] },
-        { title: 'Dispositivos', controls: [C.inputDevice, C.outputDevice] }
-      ]
-    }
-  },
+  { id: 'audio', label: 'Audio', icon: Mic },
   {
     id: 'shortcuts',
     label: 'Atajos',
